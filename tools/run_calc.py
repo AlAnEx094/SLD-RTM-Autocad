@@ -84,7 +84,15 @@ def seed_kr_table_if_empty(db_path: Path) -> int:
         con.close()
 
 
-def get_or_create_panel(db_path: Path, *, panel_id: str | None, panel_name: str, u_ll_v: float) -> str:
+def get_or_create_panel(
+    db_path: Path,
+    *,
+    panel_id: str | None,
+    panel_name: str,
+    system_type: str,
+    u_ll_v: float | None,
+    u_ph_v: float | None,
+) -> str:
     con = sqlite3.connect(db_path)
     try:
         con.execute("PRAGMA foreign_keys = ON;")
@@ -93,22 +101,27 @@ def get_or_create_panel(db_path: Path, *, panel_id: str | None, panel_name: str,
             row = con.execute("SELECT id FROM panels WHERE id = ?", (panel_id,)).fetchone()
             if row:
                 return str(row[0])
-            # create with requested id
             con.execute(
-                "INSERT INTO panels (id, name, u_ll_v) VALUES (?, ?, ?)",
-                (panel_id, panel_name, u_ll_v),
+                """
+                INSERT INTO panels (id, name, system_type, u_ll_v, u_ph_v)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (panel_id, panel_name, system_type, u_ll_v, u_ph_v),
             )
             con.commit()
             return panel_id
 
-        row = con.execute("SELECT id FROM panels WHERE name = ? ORDER BY created_at DESC LIMIT 1", (panel_name,)).fetchone()
+        row = con.execute("SELECT id FROM panels WHERE name = ? LIMIT 1", (panel_name,)).fetchone()
         if row:
             return str(row[0])
 
         new_id = _uuid()
         con.execute(
-            "INSERT INTO panels (id, name, u_ll_v) VALUES (?, ?, ?)",
-            (new_id, panel_name, u_ll_v),
+            """
+            INSERT INTO panels (id, name, system_type, u_ll_v, u_ph_v)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (new_id, panel_name, system_type, u_ll_v, u_ph_v),
         )
         con.commit()
         return new_id
@@ -125,7 +138,7 @@ def ensure_demo_input_rows(db_path: Path, panel_id: str) -> int:
     try:
         con.execute("PRAGMA foreign_keys = ON;")
         n = con.execute(
-            "SELECT COUNT(*) FROM rtm_input_rows WHERE panel_id = ?",
+            "SELECT COUNT(*) FROM rtm_rows WHERE panel_id = ?",
             (panel_id,),
         ).fetchone()[0]
         n = int(n)
@@ -133,22 +146,37 @@ def ensure_demo_input_rows(db_path: Path, panel_id: str) -> int:
             return n
 
         rows = [
-            # (pos, name, ne, p_nom_kw, ki, cos_phi)
-            (1, "Демо: группа A (интерполяция Ki=0.725)", 4, 1.0, 0.725, 0.90),
-            (2, "Демо: группа B (ne=3 -> ne_tab=4)", 3, 2.0, 0.75, 0.95),
+            # (name, n, pn_kw, ki, cos_phi, tg_phi)
+            ("Демо: группа A (Ki=0.725)", 2, 1.0, 0.725, 0.90, None),
+            ("Демо: группа B (Ki=0.750)", 2, 1.0, 0.750, 0.95, None),
         ]
-        for pos, name, ne, p_nom_kw, ki, cos_phi in rows:
+        for name, n_value, pn_kw, ki, cos_phi, tg_phi in rows:
             con.execute(
                 """
-                INSERT INTO rtm_input_rows (id, panel_id, pos, name, ne, p_nom_kw, ki, cos_phi)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO rtm_rows (
+                  id, panel_id, name, n, pn_kw, ki, cos_phi, tg_phi,
+                  phases, phase_mode, phase_fixed
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (_uuid(), panel_id, pos, name, ne, p_nom_kw, ki, cos_phi),
+                (
+                    _uuid(),
+                    panel_id,
+                    name,
+                    n_value,
+                    pn_kw,
+                    ki,
+                    cos_phi,
+                    tg_phi,
+                    3,
+                    "NONE",
+                    None,
+                ),
             )
 
         con.commit()
         n2 = con.execute(
-            "SELECT COUNT(*) FROM rtm_input_rows WHERE panel_id = ?",
+            "SELECT COUNT(*) FROM rtm_rows WHERE panel_id = ?",
             (panel_id,),
         ).fetchone()[0]
         return int(n2)
@@ -164,7 +192,14 @@ def main() -> int:
     ap.add_argument("--db", required=True, help="Path to SQLite DB (e.g. db/project.sqlite)")
     ap.add_argument("--panel-id", default=None, help="Existing panel id (GUID). If absent, panel is resolved/created by name.")
     ap.add_argument("--panel-name", default="MVP_PANEL_1", help="Panel name (used to create/resolve panel).")
+    ap.add_argument(
+        "--system-type",
+        choices=("3PH", "1PH"),
+        default="3PH",
+        help="Panel system type (default: 3PH).",
+    )
     ap.add_argument("--u-ll-v", type=float, default=400.0, help="Line-to-line voltage, V (default: 400).")
+    ap.add_argument("--u-ph-v", type=float, default=None, help="Phase voltage, V (default: 230 for 3PH).")
     ap.add_argument("--no-seed-kr", action="store_true", help="Do not seed kr_table when empty.")
     ap.add_argument("--no-demo-input", action="store_true", help="Do not create demo input rows when none exist.")
     args = ap.parse_args()
@@ -177,11 +212,20 @@ def main() -> int:
     else:
         seed_n = None
 
+    if args.system_type == "3PH":
+        u_ll_v = float(args.u_ll_v)
+        u_ph_v = float(args.u_ph_v) if args.u_ph_v is not None else 230.0
+    else:
+        u_ll_v = float(args.u_ll_v)
+        u_ph_v = float(args.u_ph_v) if args.u_ph_v is not None else 230.0
+
     panel_id = get_or_create_panel(
         db_path,
         panel_id=args.panel_id,
         panel_name=args.panel_name,
-        u_ll_v=float(args.u_ll_v),
+        system_type=args.system_type,
+        u_ll_v=u_ll_v,
+        u_ph_v=u_ph_v,
     )
 
     if not args.no_demo_input:
@@ -198,7 +242,7 @@ def main() -> int:
         print("kr_table_rows:", seed_n)
     if input_n is not None:
         print("input_rows:", input_n)
-    print("calc_run_id:", res.calc_run_id)
+    print("row_calc_rows:", res.row_count)
     return 0
 
 

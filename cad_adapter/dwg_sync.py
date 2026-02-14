@@ -17,6 +17,7 @@ import sqlite3
 import sys
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
+from urllib.parse import quote
 
 
 @dataclass(frozen=True)
@@ -35,10 +36,17 @@ class SyncPayload:
         }
 
 
+class MissingPanelCalcError(RuntimeError):
+    def __init__(self, panel_id: str) -> None:
+        super().__init__(f"Missing calculated results in rtm_panel_calc for panel_id={panel_id!r}")
+        self.panel_id = panel_id
+
+
 def _connect_ro(db_path: str) -> sqlite3.Connection:
     # Use URI + mode=ro to guarantee read-only access.
     # Note: requires existing file; this is intended.
-    uri = f"file:{db_path}?mode=ro"
+    abs_path = os.path.abspath(db_path)
+    uri = f"file:{quote(abs_path)}?mode=ro"
     conn = sqlite3.connect(uri, uri=True)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON;")
@@ -99,6 +107,13 @@ def sync_from_db(db_path: str, panel_id: str) -> None:
             sort_keys=True,
         )
     )
+    sys.stdout.flush()
+
+    # Contract note:
+    # - payload must still be printed (null fields are allowed)
+    # - CLI should exit non-zero with a clear message if panel calc is missing
+    if rtm_panel_calc is None:
+        raise MissingPanelCalcError(panel_id=panel_id)
 
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:
@@ -113,6 +128,9 @@ def main(argv: list[str]) -> int:
     try:
         sync_from_db(db_path=ns.db, panel_id=ns.panel_id)
         return 0
+    except MissingPanelCalcError as e:
+        print(f"[cad_adapter] {e}", file=sys.stderr)
+        return 4
     except sqlite3.OperationalError as e:
         print(f"[cad_adapter] SQLite operational error: {e}", file=sys.stderr)
         return 2
