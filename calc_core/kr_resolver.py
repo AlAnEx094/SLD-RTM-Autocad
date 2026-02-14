@@ -8,7 +8,7 @@ from typing import Iterable
 
 @dataclass(frozen=True)
 class KrResolution:
-    ne_input: int
+    ne_input: float
     ki_input: float
     ki_clamped: float
     ne_tab: int
@@ -37,7 +37,7 @@ def _iter_row_points(con: sqlite3.Connection, ne_tab: int) -> list[tuple[float, 
     return [(float(ki), float(kr)) for (ki, kr) in rows]
 
 
-def resolve_kr(db_path: str, ne: int, ki: float, *, eps: float = 1e-12) -> KrResolution:
+def resolve_kr(db_path: str, ne: float, ki: float, *, eps: float = 1e-12) -> KrResolution:
     """
     Resolve Kr строго по контракту (см. docs/contracts/KR_RESOLVER.md).
 
@@ -48,9 +48,12 @@ def resolve_kr(db_path: str, ne: int, ki: float, *, eps: float = 1e-12) -> KrRes
     - при точном попадании в столбец -> табличное значение
     - ошибка при отсутствии ne_tab или невозможности интерполяции
     """
-    if not isinstance(ne, int):
-        raise TypeError("ne must be int")
-    if ne <= 0:
+    if not isinstance(ne, (int, float)) or isinstance(ne, bool):
+        raise TypeError("ne must be a number")
+    ne_val = float(ne)
+    if math.isnan(ne_val) or math.isinf(ne_val):
+        raise ValueError("ne must be finite")
+    if ne_val <= 0:
         raise ValueError("ne must be positive")
     if not isinstance(ki, (int, float)):
         raise TypeError("ki must be a number")
@@ -67,7 +70,7 @@ def resolve_kr(db_path: str, ne: int, ki: float, *, eps: float = 1e-12) -> KrRes
         # 1) ne_tab = MIN(ne) WHERE ne >= ne_input
         row = con.execute(
             "SELECT MIN(ne) FROM kr_table WHERE ne >= ?",
-            (ne,),
+            (ne_val,),
         ).fetchone()
         ne_tab = row[0] if row else None
         if ne_tab is None:
@@ -82,7 +85,7 @@ def resolve_kr(db_path: str, ne: int, ki: float, *, eps: float = 1e-12) -> KrRes
         for ki_col, kr_val in pts:
             if abs(ki_col - ki_clamped) <= eps:
                 return KrResolution(
-                    ne_input=ne,
+                    ne_input=ne_val,
                     ki_input=ki_in,
                     ki_clamped=ki_clamped,
                     ne_tab=ne_tab,
@@ -117,7 +120,7 @@ def resolve_kr(db_path: str, ne: int, ki: float, *, eps: float = 1e-12) -> KrRes
         # 4) linear interpolation by Ki
         kr = kr_lo + ((ki_clamped - ki_lo) / (ki_hi - ki_lo)) * (kr_hi - kr_lo)
         return KrResolution(
-            ne_input=ne,
+            ne_input=ne_val,
             ki_input=ki_in,
             ki_clamped=ki_clamped,
             ne_tab=ne_tab,
@@ -131,7 +134,7 @@ def resolve_kr(db_path: str, ne: int, ki: float, *, eps: float = 1e-12) -> KrRes
         con.close()
 
 
-def get_kr(db_path: str, ne: int, ki: float) -> float:
+def get_kr(db_path: str, ne: float, ki: float) -> float:
     """Возвращает только Kr (обёртка над resolve_kr)."""
     return resolve_kr(db_path, ne, ki).kr
 
