@@ -57,10 +57,10 @@ def test_clamp_high_ki_to_080(tmp_path: Path) -> None:
 
 def test_ne_rounds_up_to_next_existing_row(tmp_path: Path) -> None:
     db_path = _make_db(tmp_path)
-    # In seed we only have ne=4, so ne=3 must use ne_tab=4.
-    res = resolve_kr(str(db_path), ne=3, ki=0.80)
-    assert res.ne_tab == 4
-    expected = _kr_from_db(db_path, ne=4, ki=0.80)
+    # Use an ne not present in the table to force rounding up.
+    res = resolve_kr(str(db_path), ne=26, ki=0.80)
+    assert res.ne_tab == 30
+    expected = _kr_from_db(db_path, ne=30, ki=0.80)
     assert res.kr == pytest.approx(expected)
 
 
