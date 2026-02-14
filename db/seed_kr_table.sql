@@ -7,7 +7,9 @@
 
 PRAGMA foreign_keys = ON;
 
+-- TODO: replace kr for ki=0.10 with official RTM Table 1 value.
 INSERT OR REPLACE INTO kr_table (ne, ki, kr, source) VALUES
+  (4, 0.10, 1.30, 'TODO_FILL_FROM_RTM'),
   (4, 0.60, 1.12, 'RTM_36.18.32.4-92_Table_1_EXAMPLE'),
   (4, 0.70, 1.06, 'RTM_36.18.32.4-92_Table_1_EXAMPLE'),
   (4, 0.80, 1.00, 'RTM_36.18.32.4-92_Table_1_EXAMPLE');
