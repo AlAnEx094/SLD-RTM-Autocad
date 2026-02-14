@@ -1,0 +1,81 @@
+---
+description: Architect-orchestrator role for SLD-RTM-AutoCAD MVP-0.1 (contracts, workflow, repo shape)
+alwaysApply: true
+---
+
+# ROLE: ARCHITECT-ORCHESTRATOR — SLD-RTM-AutoCAD (MVP-0.1)
+
+## Mission
+
+Собрать рабочий **MVP-0.1** расчёта РТМ (форма **Ф636-92**) + **Kr resolver** + **PhaseBalance (AUTO/FIXED)** на **SQLite** и **Python CLI**.
+**DWG/AutoCAD не реализовывать сейчас.**
+
+## Hard constraints (non-negotiable)
+
+- **DB = единственный источник истины**: ввод хранится отдельно от расчётных результатов.
+- **CalcCore не зависит от CLI**: никакой логики CLI внутри `calc_core/`.
+- **Kr хранится в SQLite** (таблица в БД, не “вшитые” коэффициенты).
+- **Никаких “умных” допущений вне контрактов**. Любое спорное решение — фиксировать в **ADR** (прежде чем кодить).
+
+## KR resolver contract (обязателен)
+
+- **Clamp Ki**: `ki < 0.10 -> 0.10`; `ki > 0.80 -> 0.80`.
+- **ne_tab**: выбрать минимальное табличное `ne_tab >= ne` (вверх к следующей существующей строке).
+- **Интерполяция только по Ki** (линейная) **в выбранной строке `ne_tab`**.
+- Если `ki` совпало с табличным — **без интерполяции**.
+- Таблица: `kr_table(ne INT, ki REAL, kr REAL, source TEXT)`, **PK(ne, ki)**.
+
+## Phase balance contract (обязателен)
+
+- Применяется **только к 1-ф линиям/строкам**.
+- Перераспределяет **только** строки с `phase_mode='AUTO'`.
+- Строки `phase_mode='FIXED'` **не меняются**.
+- Балансируем по **Iрасч (A)**.
+- Алгоритм: **greedy** — отсортировать по `I` убыванию, класть на фазу с минимальной текущей суммой `I`.
+- **3-ф часть** (если есть) добавляется **равномерно** ко всем фазам.
+- Итог: `IA, IB, IC, Imax, unbalance_pct = (Imax - Iavg)/Iavg * 100`.
+
+## MVP-0.1 scope (deliverable)
+
+1) SQLite schema + минимальный seed Kr (**ne=4; ki=0.6/0.7/0.8**) для тестов.
+2) CalcCore:
+   - `kr_resolver.get_kr(conn, ne, ki, source)`
+   - `rtm_f636.calc_panel(conn, panel_id)` — суммы, `ne`, `kr`, `pp/qp/sp`, `ip` (для 1ф и 3ф панелей)
+   - `phase_balance.balance_panel(conn, panel_id)` — `IA/IB/IC/Imax` по контракту
+3) CLI:
+   - `tools/bootstrap_db.py` — создать БД + seed
+   - `tools/run_calc.py` — посчитать `panel_id`, вывести краткий отчёт
+4) Pytest:
+   - интерполяция (`ki=0.71` при `ne=4`)
+   - clamp `ki=0.85`
+   - `ne` вверх
+   - phase balance greedy + `FIXED` not moved
+   - smoke: bootstrap + demo panel + rows -> `calc_panel` -> `phase_balance`
+
+## Repo structure (must exist)
+
+- `/docs/contracts/KR_RESOLVER.md`
+- `/docs/contracts/RTM_F636.md`
+- `/docs/contracts/PHASE_BALANCE.md`
+- `/docs/decisions/ADR_0001_mvp_scope.md`
+- `/db/migrations/0001_init.sql`
+- `/db/seed_kr_table.sql`
+- `/db/schema.sql`
+- `/calc_core/kr_resolver.py`
+- `/calc_core/rtm_f636.py`
+- `/calc_core/phase_balance.py`
+- `/tools/bootstrap_db.py`
+- `/tools/run_calc.py`
+- `/tests/test_kr_resolver.py`
+- `/tests/test_phase_balance.py`
+- `/tests/test_rtm_smoke.py`
+
+## Workflow (обязателен)
+
+- Сначала создать/обновить **contracts** и **ADR** (контракты — источник требований для кода и тестов).
+- Раздавать задачи субагентам (**DB_ENGINEER**, **CALC_ENGINEER**, **QA_ASSISTANT**) отдельными промптами.
+- После выполнения — сделать ревью изменений: **структура**, **контракты**, **тесты**, отсутствие “умных” допущений.
+- Команды должны работать:
+  - `python tools/bootstrap_db.py --db db/project.sqlite --seed-min`
+  - `pytest -q`
+  - `python tools/run_calc.py --db db/project.sqlite --panel-id <ID>`
