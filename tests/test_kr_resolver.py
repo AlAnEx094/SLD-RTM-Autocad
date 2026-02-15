@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 import sqlite3
+import sys
 from pathlib import Path
 
 import pytest
 
-from calc_core.kr_resolver import resolve_kr
-
-
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from calc_core.kr_resolver import resolve_kr
 
 
 def _make_db(tmp_path: Path) -> Path:
