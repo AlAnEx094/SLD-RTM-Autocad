@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from calc_core import run_panel_calc  # noqa: E402
+from calc_core.voltage_drop import calc_panel_du  # noqa: E402
 
 
 def _uuid() -> str:
@@ -76,6 +77,25 @@ def seed_kr_table_if_empty(db_path: Path) -> int:
         con.executescript(_read_text(seed_sql_path))
         con.commit()
         n2 = con.execute("SELECT COUNT(*) FROM kr_table").fetchone()[0]
+        return int(n2)
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+
+def seed_cable_sections_if_empty(db_path: Path) -> int:
+    seed_sql_path = ROOT / "db" / "seed_cable_sections.sql"
+    con = sqlite3.connect(db_path)
+    try:
+        con.execute("PRAGMA foreign_keys = ON;")
+        n = con.execute("SELECT COUNT(*) FROM cable_sections").fetchone()[0]
+        if n and int(n) > 0:
+            return int(n)
+        con.executescript(_read_text(seed_sql_path))
+        con.commit()
+        n2 = con.execute("SELECT COUNT(*) FROM cable_sections").fetchone()[0]
         return int(n2)
     except Exception:
         con.rollback()
@@ -188,7 +208,9 @@ def ensure_demo_input_rows(db_path: Path, panel_id: str) -> int:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Run MVP-0.1 RTM F636 calc for one panel (SQLite = truth).")
+    ap = argparse.ArgumentParser(
+        description="Run RTM F636 calc and optional voltage drop (ΔU) for one panel (SQLite = truth)."
+    )
     ap.add_argument("--db", required=True, help="Path to SQLite DB (e.g. db/project.sqlite)")
     ap.add_argument("--panel-id", default=None, help="Existing panel id (GUID). If absent, panel is resolved/created by name.")
     ap.add_argument("--panel-name", default="MVP_PANEL_1", help="Panel name (used to create/resolve panel).")
@@ -202,6 +224,7 @@ def main() -> int:
     ap.add_argument("--u-ph-v", type=float, default=None, help="Phase voltage, V (default: 230 for 3PH).")
     ap.add_argument("--no-seed-kr", action="store_true", help="Do not seed kr_table when empty.")
     ap.add_argument("--no-demo-input", action="store_true", help="Do not create demo input rows when none exist.")
+    ap.add_argument("--calc-du", action="store_true", help="Calculate ΔU for all panel circuits.")
     args = ap.parse_args()
 
     db_path = Path(args.db)
@@ -235,6 +258,16 @@ def main() -> int:
 
     res = run_panel_calc(str(db_path), panel_id, note="tools/run_calc.py")
 
+    du_count = None
+    if args.calc_du:
+        seed_cable_sections_if_empty(db_path)
+        con = sqlite3.connect(db_path)
+        try:
+            con.execute("PRAGMA foreign_keys = ON;")
+            du_count = calc_panel_du(con, panel_id)
+        finally:
+            con.close()
+
     print("OK")
     print("db:", str(db_path))
     print("panel_id:", panel_id)
@@ -243,6 +276,8 @@ def main() -> int:
     if input_n is not None:
         print("input_rows:", input_n)
     print("row_calc_rows:", res.row_count)
+    if du_count is not None:
+        print("du_circuits_processed:", du_count)
     return 0
 
 
