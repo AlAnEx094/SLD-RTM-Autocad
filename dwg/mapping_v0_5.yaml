@@ -1,0 +1,18 @@
+panel:
+  block_guid_attr: "GUID"
+  attributes:
+    PP_KW: "panel.rtm.pp_kw"
+    IP_A: "panel.rtm.ip_a"
+circuits:
+  block_guid_attr: "GUID"
+  attributes:
+    CIR_NAME: "name"
+    I_A: "calc.i_calc_a"
+    DU_PCT: "calc.du_pct"
+    S_MM2: "calc.s_mm2_selected"
+sections:
+  block_guid_attr: "GUID"
+  attributes:
+    PP_KW: "modes.{MODE}.pp_kw"
+    IP_A: "modes.{MODE}.ip_a"
+  modes: ["NORMAL","RESERVE"]
