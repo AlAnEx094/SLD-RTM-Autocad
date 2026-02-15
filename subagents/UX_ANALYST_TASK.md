@@ -1,7 +1,7 @@
-# UX_ANALYST TASK — feature/ui-spec (MVP-UI v0.1 Streamlit Operator UI)
+# UX_ANALYST TASK — feature/ui-v0-2-spec (MVP-UI v0.2 Streamlit Operator UI)
 
 ROLE: UX_ANALYST  
-BRANCH: `feature/ui-spec` (создать изменения и коммиты только здесь)  
+BRANCH: `feature/ui-v0-2-spec` (создать изменения и коммиты только здесь)  
 SCOPE (разрешено менять): `docs/ui/*`  
 SCOPE (запрещено менять): `app/*`, `db/*`, `calc_core/*`, `tools/*`, `tests/*`, `dwg/*`
 
@@ -17,23 +17,26 @@ SCOPE (запрещено менять): `app/*`, `db/*`, `calc_core/*`, `tools/
 
 Проблема: нет “операторского UI” как Excel для ввода/контроля, запуска расчётов и экспорта.
 
-## Цель
+## Цель (MVP-UI v0.2)
 
-Выдать **контракт UX** в `docs/ui/STREAMLIT_UI_SPEC.md` для Streamlit Operator UI (MVP-UI v0.1), который:
-- заменяет Excel по удобству ввода/контроля;
-- запускает расчёты через существующие модули (не копировать формулы в UI);
-- экспортирует файлы для DWG через существующие модули;
-- минимизирует риск “сломать БД” (транзакции, подтверждения, запреты на calc таблицы).
+Обновить **контракт UX** в `docs/ui/STREAMLIT_UI_SPEC.md` для Streamlit Operator UI (MVP-UI v0.2), который делает UI реально эксплуатационным:
+- **Wizard создания щита** (flow “создать → заполнить → посчитать → экспорт”)
+- **Единая страница Load Table** (таблица нагрузок видна на одной странице, как Excel)
+- **Жёсткая валидация ввода** (все обязательные поля, диапазоны, enum; блокировать Save/Calc/Export при ошибках)
+- **Явный stale indicator** (устарело/актуально/нет расчёта/неизвестно) согласно DB контракту
+- при этом сохраняет архитектурные ограничения: расчёты/экспорт только через существующие модули, никаких формул в UI, `*_calc` только read-only.
 
 ## Non-negotiable требования (обязательно отразить в SPEC)
 
 1) Таблица нагрузок как Excel:
    - `rtm_rows` editable + `rtm_row_calc` read-only + `rtm_panel_calc` summary.
-2) Быстрый “мастер”: Создать панель → Заполнить RTM → Посчитать → Экспорт CSV → Импорт в DWG.
-3) Видимые статусы актуальности:
+2) **Unified Load Table page**: таблица нагрузок должна быть видна и управляема **на одной странице** (layout + summary + действия).
+3) **Wizard flow**: Создать панель → Заполнить RTM → Посчитать → Экспорт CSV → Импорт в DWG.
+4) Видимые статусы актуальности:
    - если исходные данные изменились после `updated_at` расчёта → показывать “устарело” и кнопку пересчитать.
    - Не допускать “магии”: если без DB метаданных точно не определить — SPEC должен предложить **минимальное** и **безопасное** решение (например, UI‑мета таблица/триггеры) и явно описать fallback.
-4) Запрет редактирования любых `*_calc` таблиц из UI.
+5) Запрет редактирования любых `*_calc` таблиц из UI.
+6) Валидация обязательна.
 
 ## Что нужно сделать
 
@@ -42,9 +45,10 @@ SCOPE (запрещено менять): `app/*`, `db/*`, `calc_core/*`, `tools/
    - `tools/run_calc.py`, `tools/export_payload.py`, `tools/export_attributes_csv.py`
    - `calc_core/export_payload.py` (требования к наличию calc данных)
 2) Обновить `docs/ui/STREAMLIT_UI_SPEC.md` так, чтобы он:
-   - был “как Excel”, но безопасный;
-   - имел чёткие страницы/таблицы/валидации;
-   - описал реалистичный механизм **stale/актуальности** (см. non-negotiable #3).
+   - описал Wizard flow (шаги, UI состояния, что блокируется когда);
+   - описал unified Load Table layout (где ввод, где calc, где итог, где кнопки);
+   - имел чёткие правила строгой валидации по всем полям на Load Table;
+   - описал реалистичный механизм **stale/актуальности** (см. non-negotiable) и как он отображается (badge/tooltip/recalc action).
 
 ## Acceptance criteria
 
@@ -54,8 +58,8 @@ SCOPE (запрещено менять): `app/*`, `db/*`, `calc_core/*`, `tools/
 
 ## Git workflow
 
-1) `git checkout -b feature/ui-spec` (или `git checkout feature/ui-spec`)
+1) `git checkout -b feature/ui-v0-2-spec` (или `git checkout feature/ui-v0-2-spec`)
 2) Правки только в `docs/ui/*`
 3) `git add docs/ui`
-4) `git commit -m "docs(ui): define Streamlit Operator UI spec (MVP-UI v0.1)"`
+4) `git commit -m "docs(ui): update Streamlit Operator UI spec (MVP-UI v0.2)"`
 

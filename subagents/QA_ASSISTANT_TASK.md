@@ -1,7 +1,7 @@
-# QA_ASSISTANT TASK — feature/ui-qa (MVP-UI v0.1 Streamlit Operator UI)
+# QA_ASSISTANT TASK — feature/ui-v0-2-qa (MVP-UI v0.2 Streamlit Operator UI)
 
 ROLE: QA_ASSISTANT  
-BRANCH: `feature/ui-qa` (создать изменения и коммиты только здесь)  
+BRANCH: `feature/ui-v0-2-qa` (создать изменения и коммиты только здесь)  
 SCOPE (разрешено менять): `tests/*`, `docs/ui/STREAMLIT_UI_RUN.md`  
 SCOPE (запрещено менять): `db/*`, `calc_core/*`, `tools/*`, `app/*`, `dwg/*`
 
@@ -11,9 +11,10 @@ SCOPE (запрещено менять): `db/*`, `calc_core/*`, `tools/*`, `app/
 запуска расчётов и экспорта JSON/CSV для DWG.
 
 Требования:
-- `pytest -q` остаётся зелёным (сейчас 14 passed).
+- `pytest -q` остаётся зелёным.
 - UI запускается вручную (`streamlit run app/streamlit_app.py`).
 - UI **не должен** редактировать `*_calc` таблицы (только read-only).
+ - Валидация в Load Table обязана блокировать некорректный ввод и действия (Save/Calc/Export).
 
 ## Что нужно сделать (минимум, high-signal)
 
@@ -38,7 +39,16 @@ SCOPE (запрещено менять): `db/*`, `calc_core/*`, `tools/*`, `app/
 
 Если такой whitelist не реализован в UI (или импорт тяжёлый) — пропусти пункт и зафиксируй это как TODO в `docs/ui/STREAMLIT_UI_RUN.md`.
 
-### 3) Обновить `docs/ui/STREAMLIT_UI_RUN.md` (после появления файла)
+### 3) Sanity: “валидация блокирует некорректный ввод” (обязательно)
+
+Добавить тест `tests/test_streamlit_ui_validation.py`, который **без запуска webserver** проверяет:
+- что функция(и) валидации Load Table (если вынесены в `app/` как pure функции) возвращают ошибки на некорректные данные.
+
+Если валидация сейчас реализована только внутри view и её нельзя импортировать без Streamlit контекста — зафиксировать TODO:
+- вынести валидацию в модуль `app/validation.py` (pure functions) и покрыть тестом.
+(Тест в этом случае можно ограничить smoke-assert, что TODO записан в runbook.)
+
+### 4) Обновить `docs/ui/STREAMLIT_UI_RUN.md`
 
 Добавить раздел “QA smoke checklist”:
 - как быстро проверить ручной запуск UI,
@@ -53,8 +63,8 @@ SCOPE (запрещено менять): `db/*`, `calc_core/*`, `tools/*`, `app/
 
 ## Git workflow
 
-1) `git checkout -b feature/ui-qa` (или `git checkout feature/ui-qa`)
+1) `git checkout -b feature/ui-v0-2-qa` (или `git checkout feature/ui-v0-2-qa`)
 2) Правки только в `tests/*` и (опционально) `docs/ui/STREAMLIT_UI_RUN.md`
 3) `git add tests docs/ui/STREAMLIT_UI_RUN.md`
-4) `git commit -m "test: add Streamlit UI smoke and sanity checklist (MVP-UI v0.1)"`
+4) `git commit -m "test: add UI v0.2 validation and smoke checks"`
 
