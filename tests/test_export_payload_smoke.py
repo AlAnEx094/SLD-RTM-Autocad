@@ -143,21 +143,21 @@ def test_build_payload_smoke(tmp_path: Path) -> None:
         assert key in payload
 
     panel = payload["panel"]
-    assert panel["id"] == panel_id
+    assert panel["panel_id"] == panel_id
     assert "rtm" in panel
     for key in ("pp_kw", "qp_kvar", "sp_kva", "ip_a", "kr", "ne"):
         assert key in panel["rtm"]
 
     sections = payload["bus_sections"]
     assert len(sections) == 2
-    section_map = {section["id"]: section for section in sections}
+    section_map = {section["bus_section_id"]: section for section in sections}
     assert "modes" in section_map[section_id_with_calc]
     assert "NORMAL" in section_map[section_id_with_calc]["modes"]
-    assert "modes" not in section_map[section_id_no_calc]
+    assert "NORMAL" not in section_map[section_id_no_calc]["modes"]
 
     circuits = payload["circuits"]
     assert len(circuits) == 2
-    circuit_map = {circuit["id"]: circuit for circuit in circuits}
+    circuit_map = {circuit["circuit_id"]: circuit for circuit in circuits}
 
     calc_ok = circuit_map[circuit_id_ok]["calc"]
     assert calc_ok["status"] == "OK"
