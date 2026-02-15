@@ -1,4 +1,4 @@
-# DB_ENGINEER TASK — feature/db-layer (MVP-0.2 Voltage Drop / Circuits)
+# DB_ENGINEER TASK — feature/db-layer (MVP-0.3 Bus sections + consumers feeds)
 
 ROLE: DB_ENGINEER  
 BRANCH: `feature/db-layer` (создать изменения и коммиты только здесь)  
@@ -7,87 +7,86 @@ SCOPE (запрещено менять): `calc_core/*`, `tools/*`, `tests/*`, `d
 
 ## Контекст
 
-MVP-0.2 добавляет расчёт падения напряжения ΔU и подбор минимального сечения по ΔU.
-Для этого нужен DB-слой: сущность **circuits** + результаты **circuit_calc**, а также
-кастомные лимиты ΔU на панели.
+MVP-0.3 добавляет поддержку потребителя 1 категории с двумя вводами:
+`NORMAL`/`RESERVE` от разных секций шин ЩСН.
+
+Нужно хранить:
+- секции шин (`bus_sections`)
+- потребителей (`consumers`)
+- привязки вводов потребителей к секциям (`consumer_feeds`)
 
 Важно:
 - DB = истина (ввод отдельно от расчёта).
-- Никаких изменений в существующих сущностях Kr (`kr_table`) и расчётных таблицах RTM.
+- Никаких изменений в существующих `circuits/*` и ΔU-таблицах: они живут отдельно.
 
 ## Цель
 
-### 1) Миграция `db/migrations/0002_circuits.sql` (обязательно)
+### 1) Миграция `db/migrations/0003_bus_and_feeds.sql` (обязательно)
 
-Добавить:
+Добавить таблицы:
 
-#### A) Поля лимитов ΔU в `panels`
+#### A) `bus_sections`
 
-- `panels.du_limit_lighting_pct REAL NOT NULL DEFAULT 3.0`
-- `panels.du_limit_other_pct REAL NOT NULL DEFAULT 5.0`
-- (опционально) `panels.installation_type TEXT DEFAULT 'A'`
+`bus_sections(id TEXT PK, panel_id TEXT FK, name TEXT NOT NULL)`
 
-Примечание: `installation_type` не должен влиять на расчёт в MVP-0.2, лимиты решают всё.
+- `panel_id` -> `panels(id)` ON DELETE CASCADE
 
-#### B) Таблицы `circuits`, `circuit_calc`, `cable_sections`
-
-Создать таблицы (SQLite):
-
-- `circuits`:
-  - `id TEXT PRIMARY KEY`
-  - `panel_id TEXT NOT NULL REFERENCES panels(id) ON DELETE CASCADE`
-  - `name TEXT`
-  - `phases INTEGER NOT NULL CHECK(phases IN (1,3))`
-  - `neutral_present INTEGER NOT NULL DEFAULT 1`
-  - `unbalance_mode TEXT NOT NULL DEFAULT 'NORMAL' CHECK(unbalance_mode IN ('NORMAL','FULL_UNBALANCED'))`
-  - `length_m REAL NOT NULL`  (метры)
-  - `material TEXT NOT NULL CHECK(material IN ('CU','AL'))`
-  - `cos_phi REAL NOT NULL`
-  - `load_kind TEXT NOT NULL DEFAULT 'OTHER' CHECK(load_kind IN ('LIGHTING','OTHER'))`
-  - `i_calc_a REAL NOT NULL`  (РЕШЕНИЕ MVP: задаётся пользователем/внешним расчётом, CalcCore только использует)
-
-- `circuit_calc`:
-  - `circuit_id TEXT PRIMARY KEY REFERENCES circuits(id) ON DELETE CASCADE`
-  - `i_calc_a REAL NOT NULL`
-  - `du_v REAL NOT NULL`
-  - `du_pct REAL NOT NULL`
-  - `du_limit_pct REAL NOT NULL`
-  - `s_mm2_selected REAL NOT NULL`
-  - `method TEXT NOT NULL`
-  - `updated_at TEXT NOT NULL`
-
-- `cable_sections`:
-  - `s_mm2 REAL PRIMARY KEY`
-
-Индексы (минимально необходимые):
-- `circuits(panel_id)`
-
-### 2) Seed сечений кабеля (обязательно)
-
-Добавить файл `db/seed_cable_sections.sql`:
-
-- Заполняет `cable_sections` стандартным рядом сечений (мм²) в диапазоне **1.5..240**:
-  `1.5, 2.5, 4, 6, 10, 16, 25, 35, 50, 70, 95, 120, 150, 185, 240`
-
-Формат:
+#### B) `consumers`
 
 ```sql
-INSERT OR IGNORE INTO cable_sections (s_mm2) VALUES
-  (1.5),
-  (2.5),
-  ...
-;
+consumers(
+  id TEXT PRIMARY KEY,
+  panel_id TEXT NOT NULL REFERENCES panels(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  load_ref_type TEXT NOT NULL DEFAULT 'RTM_PANEL'
+    CHECK(load_ref_type IN ('RTM_PANEL','RTM_ROW','MANUAL')),
+  load_ref_id TEXT NOT NULL,
+  notes TEXT
+)
 ```
+
+MVP-решение для тестов: поддержать `MANUAL` нагрузку прямо в `consumers` (чтобы не мокать RTM):
+
+- добавить nullable-поля:
+  - `p_kw REAL`
+  - `q_kvar REAL`
+  - `s_kva REAL`
+  - `i_a REAL`
+- добавить CHECK:
+  - если `load_ref_type='MANUAL'` → все 4 поля NOT NULL
+  - если `load_ref_type<>'MANUAL'` → все 4 поля NULL
+
+#### C) `consumer_feeds`
+
+```sql
+consumer_feeds(
+  id TEXT PRIMARY KEY,
+  consumer_id TEXT NOT NULL REFERENCES consumers(id) ON DELETE CASCADE,
+  bus_section_id TEXT NOT NULL REFERENCES bus_sections(id) ON DELETE CASCADE,
+  feed_role TEXT NOT NULL CHECK(feed_role IN ('NORMAL','RESERVE'))
+)
+```
+
+Опциональные индексы:
+- `consumer_feeds(consumer_id)`
+- `consumer_feeds(bus_section_id)`
+
+### 2) Миграция данных: default bus section (обязательно)
+
+Требование: для каждого `panels.id` должна существовать хотя бы 1 запись `bus_sections`
+с именем `'DEFAULT'`, если для панели секций ещё нет.
+
+Сделать это в конце `0003_bus_and_feeds.sql` через `INSERT ... SELECT`:
+- вставить `'DEFAULT'` для каждой панели, где `NOT EXISTS (bus_sections WHERE panel_id = panels.id)`
+- `id` генерировать внутри SQLite (например `lower(hex(randomblob(16)))`), т.к. Python/CLI не должны быть обязательны для миграции.
 
 ### 3) Обновить `db/schema.sql` (обязательно)
 
-`db/schema.sql` — агрегированный “слепок” схемы. Обнови его так, чтобы он отражал изменения
-после применения `0002_circuits.sql` (новые таблицы + новые колонки в `panels`).
+Добавить в snapshot новые таблицы и (если добавлялись) MANUAL поля в `consumers`.
 
 ## Deliverables
 
-- `db/migrations/0002_circuits.sql`
-- `db/seed_cable_sections.sql`
+- `db/migrations/0003_bus_and_feeds.sql`
 - Обновлённый `db/schema.sql`
 
 ## Acceptance criteria
@@ -95,16 +94,19 @@ INSERT OR IGNORE INTO cable_sections (s_mm2) VALUES
 - На пустой БД последовательное выполнение:
   - `db/migrations/0001_init.sql`
   - `db/migrations/0002_circuits.sql`
+  - `db/migrations/0003_bus_and_feeds.sql`
   - `db/seed_cable_sections.sql`
   проходит без ошибок.
-- В `panels` есть колонки `du_limit_lighting_pct`, `du_limit_other_pct` с дефолтами 3.0/5.0.
-- Таблицы `circuits`, `circuit_calc`, `cable_sections` созданы и имеют нужные ограничения.
+- Таблицы `bus_sections`, `consumers`, `consumer_feeds` созданы и имеют нужные ограничения.
+- При наличии панелей (например, если миграция накатывается на непустую БД) после `0003`:
+  - для каждой панели есть хотя бы одна `bus_sections` (DEFAULT), если ранее не было секций.
+- CHECK-ограничение для MANUAL нагрузки работает (MANUAL требует p/q/s/i, non-MANUAL запрещает их).
 
 ## Git workflow (обязательно)
 
 1) `git checkout -b feature/db-layer` (или `git checkout feature/db-layer`, если уже существует)
 2) Правки только в `db/*`
 3) `git add db`
-4) `git commit -m "db: add circuits and voltage-drop limits (MVP-0.2)"`
+4) `git commit -m "db: add bus sections and consumer feeds (MVP-0.3)"`
 
 

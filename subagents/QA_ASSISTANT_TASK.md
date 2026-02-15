@@ -1,4 +1,4 @@
-# QA_ASSISTANT TASK — feature/qa-tests (MVP-0.2 Voltage Drop)
+# QA_ASSISTANT TASK — feature/qa-tests (MVP-0.3 Bus section aggregation)
 
 ROLE: QA_ASSISTANT  
 BRANCH: `feature/qa-tests` (создать изменения и коммиты только здесь)  
@@ -7,69 +7,52 @@ SCOPE (запрещено менять): `db/*`, `calc_core/*`, `tools/*`, `docs
 
 ## Контекст
 
-MVP-0.2 добавляет расчёт падения напряжения ΔU и подбор минимального сечения по ΔU.
-DB изменения (circuits/circuit_calc/cable_sections + лимиты в panels) делает DB_ENGINEER,
-CalcCore (`calc_core/voltage_drop.py` + `tools/run_calc.py --calc-du`) делает CALC_ENGINEER.
-
-Твоя задача — добавить контрактные тесты, которые фиксируют:
-- учёт `X` и `sinφ`
-- правило `b` (1/2) для 1PH/3PH/NORMAL/FULL_UNBALANCED
-- правило увеличения лимита при `length_m > 100`
-- корректный выбор **минимального** `S` из `cable_sections`
+MVP-0.3 добавляет потребителя 1 категории с двумя вводами (NORMAL/RESERVE) на разные секции шин.
+Нужно проверить, что расчёт агрегации по секциям в режиме `NORMAL`:
+- учитывает нагрузку на NORMAL-секции
+- НЕ учитывает нагрузку на RESERVE-секции
 
 ## Что нужно сделать
 
-### 1) `tests/test_voltage_drop.py` (обязательно)
+### 1) `tests/test_section_aggregation.py` (обязательно)
 
-Покрыть кейсы:
+Сценарий:
 
-1) **1PH Cu**:
-   - при увеличении `S` `du_pct` уменьшается
-   - `select_min_section_by_du` выбирает минимальное `S`, удовлетворяющее лимиту
-
-2) **3PH NORMAL**:
-   - при прочих равных `b=1` даёт `du_v` в 2 раза меньше, чем `b=2`
-   - проверить через сравнение двух circuits: (3PH NORMAL) vs (3PH FULL_UNBALANCED) с одинаковыми входами
-
-3) **FULL_UNBALANCED**:
-   - `phases=3` + `unbalance_mode='FULL_UNBALANCED'` → `b=2` (как 1PH)
-
-4) **length > 100 m**:
-   - лимит увеличивается на:
-     - `add_pct = min(0.005 * (L - 100), 0.5)`
-     - `effective = base + add_pct`
-   - и это влияет на выбранное `S` (подготовь данные так, чтобы на `L<=100` одно S не проходило,
-     а на `L>100` стало проходить, либо наоборот — главное, чтобы тест ловил правило).
-
-Важно:
-- Не выдумывай численные “ожидания” ΔU из головы. Для проверок используй:
-  - монотонность (du падает при росте S)
-  - отношение (b=1 vs b=2 → ровно ×2)
-  - сравнение выбранных S при разных лимитах/длинах
-
-### 2) Smoke test `tests/test_voltage_drop_smoke.py` (или расширить существующий smoke) (обязательно)
-
-Минимальный сквозной сценарий:
-
-- создать временную SQLite
-- применить миграции `0001_init.sql` + `0002_circuits.sql`
-- применить seed `seed_cable_sections.sql`
+- создать tmp SQLite
+- применить миграции: `0001_init.sql` + `0002_circuits.sql` + `0003_bus_and_feeds.sql`
 - вставить:
-  - `panels` (обязательно `u_ph_v`, и лимиты ΔU пусть будут дефолтные или явные)
-  - `circuits` (как минимум 1 строка)
-- вызвать CLI:
-  - `python tools/run_calc.py --db <tmp> --calc-du --panel-id <id>`
+  - `panels` (u_ph_v обязателен только если ты используешь ток; для MANUAL можно задавать i_a явно)
+  - 2 `bus_sections`: `S1`, `S2`
+  - `consumer` C1:
+    - `load_ref_type='MANUAL'`
+    - задать `p_kw/q_kvar/s_kva/i_a` (как требует DB CHECK)
+  - `consumer_feeds` для C1:
+    - `NORMAL -> S1`
+    - `RESERVE -> S2`
+- вызвать `calc_section_loads(conn, panel_id, mode='NORMAL')`
 - проверить:
-  - строка в `circuit_calc` создана
-  - `du_limit_pct` записан и соответствует `effective_du_limit`
-  - `s_mm2_selected` заполнен
+  - в результатах/таблице `section_calc` нагрузка присутствует у `S1`
+  - и отсутствует у `S2` (либо нулевая, но предпочтительно “нет строки”)
+
+### 2) Smoke через CLI (опционально, но желательно)
+
+Если `tools/run_calc.py` получит `--calc-sections`, добавь smoke:
+
+- создать БД + данные как в тесте выше
+- запустить `python tools/run_calc.py --db <tmp> --panel-id <id> --calc-sections`
+- проверить, что команда завершилась успешно и результаты записаны/выведены
+
+## Acceptance criteria
+
+- `pytest -q` зелёный
+- В `NORMAL` нагрузка сидит только на NORMAL-секции
 
 ## Git workflow
 
 1) `git checkout -b feature/qa-tests` (или `git checkout feature/qa-tests`)
 2) Правки только в `tests/*`
 3) `git add tests`
-4) `git commit -m "test: add voltage drop contract tests (MVP-0.2)"`
+4) `git commit -m "test: add section aggregation tests (MVP-0.3)"`
 
 ## Проверка
 
