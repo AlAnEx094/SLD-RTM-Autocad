@@ -7,6 +7,7 @@ import pandas as pd
 import streamlit as st
 
 from app import db
+from app.ui_components import status_chip
 from app.validation import validate_panel_for_rtm, validate_rtm_rows
 
 
@@ -24,36 +25,6 @@ INPUT_COLUMNS = [
 ]
 
 CALC_COLUMNS = ["pn_total", "ki_pn", "ki_pn_tg", "n_pn2"]
-
-
-def _render_status(label: str, info: db.StatusInfo) -> None:
-    if info.status == "HIDDEN":
-        return
-
-    cols = st.columns([1, 2, 2])
-    with cols[0]:
-        if info.status == "OK":
-            st.success(f"{label}: OK")
-        elif info.status == "STALE":
-            st.warning(f"{label}: STALE")
-        elif info.status == "NO_CALC":
-            st.error(f"{label}: NO_CALC")
-        elif info.status == "UNKNOWN":
-            st.warning(f"{label}: UNKNOWN")
-        else:
-            st.info(f"{label}: {info.status}")
-    with cols[1]:
-        if info.calc_updated_at:
-            st.caption(f"calc_updated_at: {info.calc_updated_at}")
-    with cols[2]:
-        with st.popover("Details"):
-            st.write(f"status: `{info.status}`")
-            if info.reason:
-                st.write(f"reason: `{info.reason}`")
-            if info.effective_input_at:
-                st.write(f"effective_input_at: `{info.effective_input_at}`")
-            if info.calc_updated_at:
-                st.write(f"calc_updated_at: `{info.calc_updated_at}`")
 
 
 def _normalize_input_df(df: pd.DataFrame) -> pd.DataFrame:
@@ -151,9 +122,9 @@ def render(conn, state: dict) -> None:
         system_type=panel.get("system_type"),
         external_change=state.get("external_change", False),
     )
-    _render_status("RTM", rtm_info)
+    status_chip("RTM", rtm_info)
     if panel.get("system_type") == "1PH":
-        _render_status("PHASE", phase_info)
+        status_chip("PHASE", phase_info)
 
     rows = db.list_rtm_rows_with_calc(conn, panel_id)
     df_full = pd.DataFrame(rows)

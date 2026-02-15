@@ -6,6 +6,7 @@ from pathlib import Path
 import streamlit as st
 
 from app import db
+from app.ui_components import status_chip
 
 
 def _write_csv(path: Path, header: list[str], rows: list[list[str]]) -> None:
@@ -26,18 +27,13 @@ def render(conn, state: dict) -> None:
 
     rtm_info = db.rtm_status(conn, panel_id, external_change=state.get("external_change", False))
     if rtm_info.status != "OK":
-        st.error(f"RTM status is {rtm_info.status}. Export is blocked by default.")
-        with st.popover("Why?"):
-            st.write(f"status: `{rtm_info.status}`")
-            if rtm_info.reason:
-                st.write(f"reason: `{rtm_info.reason}`")
-            if rtm_info.calc_updated_at:
-                st.write(f"calc_updated_at: `{rtm_info.calc_updated_at}`")
-            if rtm_info.effective_input_at:
-                st.write(f"effective_input_at: `{rtm_info.effective_input_at}`")
+        status_chip("RTM", rtm_info)
+        st.error("Export is blocked by default unless RTM status is OK.")
         allow = st.checkbox("Export despite non-OK RTM status (not recommended)")
         if not allow:
             return
+    else:
+        status_chip("RTM", rtm_info)
 
     st.subheader("JSON payload (v0.4)")
     default_json = Path("out") / f"payload_{panel_id[:8]}.json"

@@ -6,23 +6,9 @@ import sqlite3
 import streamlit as st
 
 from app import db
+from app.ui_components import status_chip
 
 ROOT = Path(__file__).resolve().parents[2]
-
-
-def _render_status(label: str, info: db.StatusInfo) -> None:
-    if info.status == "OK":
-        st.success(f"{label}: OK")
-    elif info.status == "STALE":
-        st.warning(f"{label}: STALE")
-    elif info.status == "NO_CALC":
-        st.error(f"{label}: NO_CALC")
-    elif info.status == "UNKNOWN":
-        st.warning(f"{label}: UNKNOWN")
-    else:
-        st.info(f"{label}: {info.status}")
-    if info.calc_updated_at:
-        st.caption(f"{label} updated_at: {info.calc_updated_at}")
 
 
 def render(conn, state: dict) -> None:
@@ -44,7 +30,7 @@ def render(conn, state: dict) -> None:
         )
 
     rtm_info = db.rtm_status(conn, panel_id, external_change=state.get("external_change", False))
-    _render_status("RTM", rtm_info)
+    status_chip("RTM", rtm_info)
 
     if panel.get("system_type") == "1PH":
         phase_info = db.phase_status(
@@ -53,10 +39,10 @@ def render(conn, state: dict) -> None:
             system_type=panel.get("system_type"),
             external_change=state.get("external_change", False),
         )
-        _render_status("PHASE", phase_info)
+        status_chip("PHASE", phase_info)
 
     du_info = db.du_status(conn, panel_id, external_change=state.get("external_change", False))
-    _render_status("DU", du_info)
+    status_chip("DU", du_info)
 
     sections_mode = st.radio("Sections mode", ["NORMAL", "RESERVE"], horizontal=True)
     sections_info = db.sections_status(
@@ -65,7 +51,7 @@ def render(conn, state: dict) -> None:
         mode=sections_mode,
         external_change=state.get("external_change", False),
     )
-    _render_status(f"SECTIONS ({sections_mode})", sections_info)
+    status_chip(f"SECTIONS ({sections_mode})", sections_info)
 
     if state.get("mode_effective") != "EDIT":
         st.info("Switch to EDIT mode to run calculations.")
