@@ -12,6 +12,29 @@ def render(conn, state: dict) -> None:
     db_path = state.get("db_path")
     st.write(f"Current DB path: `{db_path}`")
 
+    if not db_path:
+        st.error("DB path is empty.")
+        return
+
+    if not Path(db_path).exists():
+        st.warning("DB file does not exist yet.")
+        st.info("Use EDIT mode to create the DB file and apply migrations.")
+        if state.get("mode_effective") != "EDIT":
+            return
+
+        st.subheader("Create DB + apply migrations")
+        confirm = st.checkbox("Create DB file and apply migrations (DDL changes)")
+        if st.button("Create DB", disabled=not confirm):
+            try:
+                from tools.run_calc import ensure_migrations
+
+                ensure_migrations(Path(db_path))
+                st.success("DB created and migrations applied.")
+                db.update_state_after_write(state, db_path)
+            except Exception as exc:  # pragma: no cover - UI error path
+                st.error(f"Failed to create DB/apply migrations: {exc}")
+        return
+
     schema = db.schema_status(conn)
     if schema["missing_tables"]:
         st.error(

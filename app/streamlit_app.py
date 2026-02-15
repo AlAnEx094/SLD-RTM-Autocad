@@ -68,11 +68,14 @@ def main() -> None:
         state["mode_effective"] = mode_effective
 
     db_path = state["db_path"]
+    if not Path(db_path).exists():
+        st.error(f"DB not found: {db_path}")
+        st.info("Go to DB Connect to create/apply migrations.")
+        db_connect.render(None, state)
+        return
+
     conn = None
     try:
-        if not Path(db_path).exists():
-            st.error(f"DB not found: {db_path}")
-            return
         conn = db.connect(db_path, read_only=mode_effective != "EDIT")
     except Exception as exc:  # pragma: no cover - UI error path
         st.error(f"Failed to connect: {exc}")
