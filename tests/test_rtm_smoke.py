@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import sqlite3
+import sys
 import uuid
 from pathlib import Path
 
-from calc_core import rtm_f636
-
-
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from calc_core import rtm_f636
 
 
 def _uuid() -> str:
