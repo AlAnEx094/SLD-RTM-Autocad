@@ -3,13 +3,15 @@
 ## Install
 
 ```bash
-python -m pip install -r requirements.txt
+python3 -m pip install -r requirements.txt
 ```
 
 ## Run
 
 ```bash
 streamlit run app/streamlit_app.py
+# If `streamlit` is not on PATH:
+python3 -m streamlit run app/streamlit_app.py
 ```
 
 ## QA smoke checklist
@@ -23,6 +25,7 @@ streamlit run app/streamlit_app.py
 
 - Default DB path: `db/project.sqlite` (change in sidebar).
 - READ_ONLY is default. Switch to EDIT to modify DB or run calculations.
+- If you see a schema error (e.g. missing `panels.system_type`), your `db/project.sqlite` is likely a legacy DB. Use **DB Connect → Recreate DB** (it creates a timestamped backup next to the file).
 - If schema is missing tables, apply migrations via the DB Connect page or run:
   `python tools/run_calc.py --db db/project.sqlite --panel-name MVP_PANEL_1`
   (this applies migrations, seeds `kr_table` if empty, and can create demo RTM rows).

@@ -87,6 +87,52 @@ def schema_status(conn: sqlite3.Connection) -> dict[str, Any]:
         "section_calc",
     }
     missing = sorted(required - tables)
+
+    # Minimal required columns for MVP-UI v0.1.
+    required_columns: dict[str, set[str]] = {
+        "panels": {
+            "id",
+            "name",
+            "system_type",
+            "u_ll_v",
+            "u_ph_v",
+            "du_limit_lighting_pct",
+            "du_limit_other_pct",
+            "installation_type",
+        },
+        "rtm_rows": {
+            "id",
+            "panel_id",
+            "name",
+            "n",
+            "pn_kw",
+            "ki",
+            "cos_phi",
+            "tg_phi",
+            "phases",
+            "phase_mode",
+            "phase_fixed",
+        },
+        "circuits": {
+            "id",
+            "panel_id",
+            "phases",
+            "length_m",
+            "material",
+            "cos_phi",
+            "load_kind",
+            "i_calc_a",
+        },
+    }
+    missing_columns: dict[str, list[str]] = {}
+    for table, cols in required_columns.items():
+        if table not in tables:
+            continue
+        actual = {str(r[1]) for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        missing_for_table = sorted(cols - actual)
+        if missing_for_table:
+            missing_columns[table] = missing_for_table
+
     has_migrations = "schema_migrations" in tables
     migrations = []
     if has_migrations:
@@ -95,6 +141,7 @@ def schema_status(conn: sqlite3.Connection) -> dict[str, Any]:
         ]
     return {
         "missing_tables": missing,
+        "missing_columns": missing_columns,
         "has_migrations": has_migrations,
         "migrations": migrations,
     }

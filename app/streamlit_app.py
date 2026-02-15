@@ -87,6 +87,12 @@ def main() -> None:
 
         _detect_external_change(state, db_path, conn)
 
+        schema = db.schema_status(conn)
+        if schema["missing_tables"] or schema.get("missing_columns"):
+            st.error("DB schema is incompatible. Open DB Connect to fix (recreate/apply migrations).")
+            db_connect.render(conn, state)
+            return
+
         if state.get("external_change"):
             st.warning(
                 "DB changed outside UI. Status is UNKNOWN until recalculation."
