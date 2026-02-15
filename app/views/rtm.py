@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 import sqlite3
 from typing import Any
 
@@ -8,6 +7,7 @@ import pandas as pd
 import streamlit as st
 
 from app import db
+from app.validation import validate_panel_for_rtm, validate_rtm_rows
 
 
 INPUT_COLUMNS = [
@@ -26,122 +26,62 @@ INPUT_COLUMNS = [
 CALC_COLUMNS = ["pn_total", "ki_pn", "ki_pn_tg", "n_pn2"]
 
 
-def _is_finite(value: Any) -> bool:
-    try:
-        num = float(value)
-    except (TypeError, ValueError):
-        return False
-    return math.isfinite(num)
-
-
-def _validate_rows(df: pd.DataFrame) -> tuple[list[str], list[str], dict[int, str]]:
-    errors: list[str] = []
-    warnings: list[str] = []
-    statuses: dict[int, str] = {}
-
-    for idx, row in df.iterrows():
-        row_errors: list[str] = []
-        row_warnings: list[str] = []
-
-        name = str(row.get("name") or "").strip()
-        label = name or str(row.get("id") or f"row#{idx}")
-
-        n_val = row.get("n")
-        if n_val is None or n_val == "" or pd.isna(n_val):
-            row_errors.append("n is required")
-        else:
-            try:
-                n_float = float(n_val)
-                if not n_float.is_integer() or int(n_float) <= 0:
-                    row_errors.append("n must be integer > 0")
-            except (TypeError, ValueError):
-                row_errors.append("n must be integer > 0")
-
-        pn_kw = row.get("pn_kw")
-        if pn_kw is None or pn_kw == "" or pd.isna(pn_kw):
-            row_errors.append("pn_kw is required")
-        elif not _is_finite(pn_kw) or float(pn_kw) < 0:
-            row_errors.append("pn_kw must be >= 0")
-
-        ki = row.get("ki")
-        if ki is None or ki == "" or pd.isna(ki):
-            row_errors.append("ki is required")
-        elif not _is_finite(ki):
-            row_errors.append("ki must be a finite number")
-        else:
-            ki_val = float(ki)
-            if ki_val < 0.10 or ki_val > 0.80:
-                row_warnings.append("ki will be clamped to [0.10..0.80]")
-
-        cos_phi = row.get("cos_phi")
-        if cos_phi not in (None, "") and not pd.isna(cos_phi):
-            if not _is_finite(cos_phi):
-                row_errors.append("cos_phi must be finite")
-            else:
-                cos_val = float(cos_phi)
-                if cos_val <= 0 or cos_val > 1:
-                    row_errors.append("cos_phi must be in (0, 1]")
-
-        tg_phi = row.get("tg_phi")
-        if tg_phi not in (None, "") and not pd.isna(tg_phi) and not _is_finite(tg_phi):
-            row_errors.append("tg_phi must be finite")
-
-        phases = row.get("phases")
-        if phases is None or phases == "" or pd.isna(phases):
-            row_errors.append("phases is required")
-        else:
-            try:
-                phases_int = int(float(phases))
-                if phases_int not in (1, 3):
-                    row_errors.append("phases must be 1 or 3")
-            except (TypeError, ValueError):
-                row_errors.append("phases must be 1 or 3")
-
-        phase_mode = str(row.get("phase_mode") or "").strip().upper()
-        if phase_mode not in ("AUTO", "FIXED", "NONE"):
-            row_errors.append("phase_mode must be AUTO, FIXED, or NONE")
-
-        phase_fixed = str(row.get("phase_fixed") or "").strip().upper()
-        if phase_mode == "FIXED":
-            if phase_fixed not in ("A", "B", "C"):
-                row_errors.append("phase_fixed must be A, B, or C when FIXED")
-        else:
-            if phase_fixed:
-                row_errors.append("phase_fixed must be empty unless FIXED")
-
-        if not name:
-            row_errors.append("name is required")
-
-        if row_errors:
-            errors.append(f"{label}: " + "; ".join(row_errors))
-            statuses[idx] = "INVALID"
-        else:
-            statuses[idx] = "OK"
-        if row_warnings:
-            warnings.append(f"{label}: " + "; ".join(row_warnings))
-
-    return errors, warnings, statuses
-
-
 def _render_status(label: str, info: db.StatusInfo) -> None:
-    if info.status == "OK":
-        st.success(f"{label}: OK")
-    elif info.status == "STALE":
-        st.warning(f"{label}: STALE")
-    elif info.status == "NO_CALC":
-        st.error(f"{label}: NO_CALC")
-    elif info.status == "UNKNOWN":
-        st.warning(f"{label}: UNKNOWN")
-    elif info.status == "HIDDEN":
+    if info.status == "HIDDEN":
         return
+
+    cols = st.columns([1, 2, 2])
+    with cols[0]:
+        if info.status == "OK":
+            st.success(f"{label}: OK")
+        elif info.status == "STALE":
+            st.warning(f"{label}: STALE")
+        elif info.status == "NO_CALC":
+            st.error(f"{label}: NO_CALC")
+        elif info.status == "UNKNOWN":
+            st.warning(f"{label}: UNKNOWN")
+        else:
+            st.info(f"{label}: {info.status}")
+    with cols[1]:
+        if info.calc_updated_at:
+            st.caption(f"calc_updated_at: {info.calc_updated_at}")
+    with cols[2]:
+        with st.popover("Details"):
+            st.write(f"status: `{info.status}`")
+            if info.reason:
+                st.write(f"reason: `{info.reason}`")
+            if info.effective_input_at:
+                st.write(f"effective_input_at: `{info.effective_input_at}`")
+            if info.calc_updated_at:
+                st.write(f"calc_updated_at: `{info.calc_updated_at}`")
+
+
+def _normalize_input_df(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    if "id" in out.columns:
+        out["id"] = out["id"].where(out["id"].notna(), None)
+        out["id"] = out["id"].astype(str).replace({"None": ""})
+    for col in ("name", "phase_mode", "phase_fixed"):
+        if col in out.columns:
+            out[col] = out[col].where(out[col].notna(), "")
+            out[col] = out[col].astype(str).str.strip()
+    for col in ("n", "phases"):
+        if col in out.columns:
+            out[col] = pd.to_numeric(out[col], errors="coerce")
+    for col in ("pn_kw", "ki", "cos_phi", "tg_phi"):
+        if col in out.columns:
+            out[col] = pd.to_numeric(out[col], errors="coerce")
+    cols = [c for c in INPUT_COLUMNS if c in out.columns]
+    out = out[cols]
+    if "id" in out.columns:
+        out = out.sort_values(by=["id", "name"], kind="stable").reset_index(drop=True)
     else:
-        st.info(f"{label}: {info.status}")
-    if info.calc_updated_at:
-        st.caption(f"{label} updated_at: {info.calc_updated_at}")
+        out = out.sort_values(by=["name"], kind="stable").reset_index(drop=True)
+    return out
 
 
 def render(conn, state: dict) -> None:
-    st.header("RTM - Load Table")
+    st.header("Load Table (Unified)")
 
     panel_id = state.get("selected_panel_id")
     if not panel_id:
@@ -152,6 +92,57 @@ def render(conn, state: dict) -> None:
     if not panel:
         st.warning("Selected panel not found.")
         return
+
+    # Panel header / quick settings
+    with st.expander("Panel header (quick settings)", expanded=True):
+        st.write(f"Panel: `{panel.get('name')}`  ID: `{panel_id}`")
+        if state.get("mode_effective") == "EDIT":
+            with st.form("load_table_panel_form"):
+                name = st.text_input("Name", value=str(panel.get("name") or ""))
+                system_type = st.selectbox(
+                    "System type", ("3PH", "1PH"),
+                    index=0 if panel.get("system_type") == "3PH" else 1,
+                )
+                u_ll_v = st.number_input(
+                    "U LL (V)", min_value=0.0,
+                    value=float(panel["u_ll_v"]) if panel.get("u_ll_v") is not None else 0.0,
+                )
+                u_ph_v = st.number_input(
+                    "U PH (V)", min_value=0.0,
+                    value=float(panel["u_ph_v"]) if panel.get("u_ph_v") is not None else 0.0,
+                )
+                submitted = st.form_submit_button("Save panel header")
+            if submitted:
+                data = {
+                    "name": name.strip(),
+                    "system_type": system_type,
+                    "u_ll_v": u_ll_v if u_ll_v > 0 else None,
+                    "u_ph_v": u_ph_v if u_ph_v > 0 else None,
+                    "du_limit_lighting_pct": panel.get("du_limit_lighting_pct"),
+                    "du_limit_other_pct": panel.get("du_limit_other_pct"),
+                    "installation_type": panel.get("installation_type"),
+                }
+                # Keep panel validation consistent with Panels page rules.
+                # (RTM-specific voltage gating is handled separately.)
+                from app.validation import validate_panel
+
+                panel_errors = validate_panel(data)
+                if panel_errors:
+                    st.error("Panel header not saved: " + "; ".join(panel_errors))
+                else:
+                    try:
+                        with db.tx(conn):
+                            db.update_panel(conn, panel_id, data)
+                            db.touch_ui_input_meta(conn, panel_id, db.SUBSYSTEM_RTM, note="panel_edit_load_table")
+                            db.touch_ui_input_meta(conn, panel_id, db.SUBSYSTEM_PHASE, note="panel_edit_load_table")
+                            db.touch_ui_input_meta(conn, panel_id, db.SUBSYSTEM_DU, note="panel_edit_load_table")
+                        db.update_state_after_write(state, state["db_path"], conn)
+                        st.success("Panel header updated.")
+                        panel = db.get_panel(conn, panel_id) or panel
+                    except Exception as exc:  # pragma: no cover
+                        st.error(f"Failed to update panel: {exc}")
+        else:
+            st.caption("Switch to EDIT mode to modify panel header.")
 
     rtm_info = db.rtm_status(conn, panel_id, external_change=state.get("external_change", False))
     phase_info = db.phase_status(
@@ -165,123 +156,125 @@ def render(conn, state: dict) -> None:
         _render_status("PHASE", phase_info)
 
     rows = db.list_rtm_rows_with_calc(conn, panel_id)
-    df = pd.DataFrame(rows)
-    if df.empty:
-        df = pd.DataFrame(columns=INPUT_COLUMNS + CALC_COLUMNS)
+    df_full = pd.DataFrame(rows)
+    if df_full.empty:
+        df_full = pd.DataFrame(columns=INPUT_COLUMNS + CALC_COLUMNS)
 
-    search = st.text_input("Search by name")
-    phase_filter = st.multiselect("Phases", [1, 3], default=[1, 3])
-    mode_filter = st.multiselect("Phase mode", ["AUTO", "FIXED", "NONE"], default=["AUTO", "FIXED", "NONE"])
+    # Normalize enums for editing UX
+    for col in ("phase_mode", "phase_fixed"):
+        if col in df_full.columns:
+            df_full[col] = df_full[col].where(df_full[col].notna(), "")
+            df_full[col] = df_full[col].astype(str).str.upper().replace({"NAN": ""})
+            if col == "phase_fixed":
+                df_full[col] = df_full[col].replace({"NONE": ""})
 
-    display_df = df.copy()
-    if "phase_mode" in display_df.columns:
-        display_df["phase_mode"] = display_df["phase_mode"].where(
-            display_df["phase_mode"].notna(), ""
-        )
-        display_df["phase_mode"] = (
-            display_df["phase_mode"].astype(str).str.upper().replace({"NAN": ""})
-        )
-    if "phase_fixed" in display_df.columns:
-        display_df["phase_fixed"] = display_df["phase_fixed"].where(
-            display_df["phase_fixed"].notna(), ""
-        )
-        display_df["phase_fixed"] = (
-            display_df["phase_fixed"].astype(str).str.upper().replace({"NAN": "", "NONE": ""})
-        )
+    with st.container():
+        tabs = st.tabs(["Edit (all rows)", "Filtered view"])
+        with tabs[0]:
+            input_validation = validate_rtm_rows(df_full[INPUT_COLUMNS].copy())
+            df_full["row_status"] = df_full.index.map(
+                lambda i: input_validation.row_status.get(i, "OK")
+            )
 
-    if search:
-        display_df = display_df[
-            display_df["name"].astype(str).str.contains(search, case=False, na=False)
-        ]
-    if phase_filter:
-        display_df = display_df[display_df["phases"].isin(phase_filter)]
-    if mode_filter:
-        display_df = display_df[display_df["phase_mode"].isin(mode_filter)]
+            st.caption("Edit RTM rows. Calc columns are read-only.")
+            edited_df = st.data_editor(
+                df_full[INPUT_COLUMNS + CALC_COLUMNS + ["row_status"]],
+                num_rows="dynamic",
+                disabled=CALC_COLUMNS + ["row_status", "id"],
+                use_container_width=True,
+                key="rtm_editor",
+            )
 
-    errors, warnings, statuses = _validate_rows(display_df[INPUT_COLUMNS].copy())
-    display_df["row_status"] = display_df.index.map(lambda i: statuses.get(i, "OK"))
+            input_df = edited_df[INPUT_COLUMNS].copy()
+            validation = validate_rtm_rows(input_df)
+            if validation.warnings:
+                st.warning("Warnings:\n" + "\n".join(validation.warnings))
+            if validation.errors:
+                st.error("Validation errors:\n" + "\n".join(validation.errors))
 
-    st.caption("Edit RTM rows. Calc columns are read-only.")
-    edited_df = st.data_editor(
-        display_df[INPUT_COLUMNS + CALC_COLUMNS + ["row_status"]],
-        num_rows="dynamic",
-        disabled=CALC_COLUMNS + ["row_status", "id"],
-        use_container_width=True,
-        key="rtm_editor",
-    )
+            # Dirty detection vs DB snapshot (strict gating for calc/export).
+            original_norm = _normalize_input_df(df_full[INPUT_COLUMNS].copy())
+            edited_norm = _normalize_input_df(input_df.copy())
+            dirty = not original_norm.equals(edited_norm)
+            state["rtm_dirty"] = dirty
+            if dirty:
+                st.warning("Unsaved changes detected. Save before running calculations/exports.")
 
-    input_df = edited_df[INPUT_COLUMNS].copy()
-    errors, warnings, _ = _validate_rows(input_df)
+            can_save = (not validation.has_errors) and state.get("mode_effective") == "EDIT"
+            if st.button("Save input changes", disabled=not can_save):
+                try:
+                    rows_to_save = []
+                    for _, row in input_df.iterrows():
+                        row_id = row.get("id")
+                        if row_id in ("", None) or pd.isna(row_id):
+                            row_id = None
+                        cos_phi = row.get("cos_phi")
+                        tg_phi = row.get("tg_phi")
+                        rows_to_save.append(
+                            {
+                                "id": row_id,
+                                "name": str(row.get("name") or "").strip(),
+                                "n": int(float(row.get("n"))),
+                                "pn_kw": float(row.get("pn_kw")),
+                                "ki": float(row.get("ki")),
+                                "cos_phi": None
+                                if cos_phi in (None, "") or pd.isna(cos_phi)
+                                else float(cos_phi),
+                                "tg_phi": None
+                                if tg_phi in (None, "") or pd.isna(tg_phi)
+                                else float(tg_phi),
+                                "phases": int(float(row.get("phases"))),
+                                "phase_mode": str(row.get("phase_mode") or "")
+                                .strip()
+                                .upper(),
+                                "phase_fixed": str(row.get("phase_fixed") or "")
+                                .strip()
+                                .upper()
+                                or None,
+                            }
+                        )
 
-    if warnings:
-        st.warning("Warnings:\n" + "\n".join(warnings))
-    if errors:
-        st.error("Validation errors:\n" + "\n".join(errors))
+                    with db.tx(conn):
+                        db.upsert_rtm_rows(conn, panel_id, rows_to_save)
+                        db.touch_ui_input_meta(
+                            conn, panel_id, db.SUBSYSTEM_RTM, note="rtm_rows_edit"
+                        )
+                        db.touch_ui_input_meta(
+                            conn, panel_id, db.SUBSYSTEM_PHASE, note="rtm_rows_edit"
+                        )
+                    db.update_state_after_write(state, state["db_path"], conn)
+                    state["rtm_dirty"] = False
+                    st.success("RTM rows saved.")
+                except Exception as exc:  # pragma: no cover - UI error path
+                    st.error(f"Failed to save RTM rows: {exc}")
 
-    display_ids = {
-        str(rid)
-        for rid in display_df["id"].dropna().astype(str).tolist()
-        if str(rid).strip()
-    }
-    edited_ids = {
-        str(rid)
-        for rid in input_df["id"].dropna().astype(str).tolist()
-        if str(rid).strip()
-    }
-    deleted_ids = sorted(display_ids - edited_ids)
-
-    if deleted_ids:
-        st.warning(
-            "Rows removed in the table will not be deleted. Use the delete section below."
-        )
-
-    can_save = not errors and state.get("mode_effective") == "EDIT"
-    if st.button("Save input changes", disabled=not can_save):
-        if deleted_ids:
-            st.error("Delete rows using the delete section.")
-        else:
-            try:
-                rows_to_save = []
-                for _, row in input_df.iterrows():
-                    row_id = row.get("id")
-                    if row_id in ("", None) or pd.isna(row_id):
-                        row_id = None
-                    cos_phi = row.get("cos_phi")
-                    tg_phi = row.get("tg_phi")
-                    rows_to_save.append(
-                        {
-                            "id": row_id,
-                            "name": str(row.get("name") or "").strip(),
-                            "n": int(float(row.get("n"))),
-                            "pn_kw": float(row.get("pn_kw")),
-                            "ki": float(row.get("ki")),
-                            "cos_phi": None if cos_phi in (None, "") or pd.isna(cos_phi) else float(cos_phi),
-                            "tg_phi": None if tg_phi in (None, "") or pd.isna(tg_phi) else float(tg_phi),
-                            "phases": int(float(row.get("phases"))),
-                            "phase_mode": str(row.get("phase_mode") or "").strip().upper(),
-                            "phase_fixed": str(row.get("phase_fixed") or "").strip().upper() or None,
-                        }
-                    )
-
-                with db.tx(conn):
-                    db.upsert_rtm_rows(conn, panel_id, rows_to_save)
-                    db.touch_ui_input_meta(
-                        conn, panel_id, db.SUBSYSTEM_RTM, note="rtm_rows_edit"
-                    )
-                    db.touch_ui_input_meta(
-                        conn, panel_id, db.SUBSYSTEM_PHASE, note="rtm_rows_edit"
-                    )
-                db.update_state_after_write(state, state["db_path"], conn)
-                st.success("RTM rows saved.")
-            except Exception as exc:  # pragma: no cover - UI error path
-                st.error(f"Failed to save RTM rows: {exc}")
+        with tabs[1]:
+            search = st.text_input("Search by name (filtered view)")
+            phase_filter = st.multiselect("Phases", [1, 3], default=[1, 3])
+            mode_filter = st.multiselect(
+                "Phase mode", ["AUTO", "FIXED", "NONE"], default=["AUTO", "FIXED", "NONE"]
+            )
+            view_df = df_full.copy()
+            if search:
+                view_df = view_df[
+                    view_df["name"].astype(str).str.contains(search, case=False, na=False)
+                ]
+            if phase_filter:
+                view_df = view_df[view_df["phases"].isin(phase_filter)]
+            if mode_filter:
+                view_df = view_df[view_df["phase_mode"].isin(mode_filter)]
+            st.dataframe(view_df, use_container_width=True)
 
     st.subheader("Input totals (from input values)")
-    if input_df.empty:
+    if df_full.empty:
         st.info("No input rows.")
     else:
-        pn_total = (input_df["n"].astype(float) * input_df["pn_kw"].astype(float)).sum()
-        ki_pn = (input_df["ki"].astype(float) * input_df["n"].astype(float) * input_df["pn_kw"].astype(float)).sum()
+        pn_total = (df_full["n"].astype(float) * df_full["pn_kw"].astype(float)).sum()
+        ki_pn = (
+            df_full["ki"].astype(float)
+            * df_full["n"].astype(float)
+            * df_full["pn_kw"].astype(float)
+        ).sum()
         cols = st.columns(2)
         cols[0].metric("Sum pn_total", f"{pn_total:.3f}")
         cols[1].metric("Sum ki_pn", f"{ki_pn:.3f}")
@@ -302,24 +295,17 @@ def render(conn, state: dict) -> None:
             st.info("panel_phase_calc is empty.")
 
     st.subheader("Recalculate RTM")
-    u_ll_v = panel.get("u_ll_v")
-    u_ph_v = panel.get("u_ph_v")
-    voltage_ok = True
-    if panel.get("system_type") == "3PH":
-        voltage_ok = u_ll_v is not None and float(u_ll_v) > 0
-    else:
-        voltage_ok = (u_ph_v is not None and float(u_ph_v) > 0) or (
-            u_ll_v is not None and float(u_ll_v) > 0
-        )
+    panel_rtm_errors = validate_panel_for_rtm(panel)
+    if panel_rtm_errors:
+        st.error("Panel RTM validation: " + "; ".join(panel_rtm_errors))
 
     can_recalc = (
         state.get("mode_effective") == "EDIT"
-        and not errors
-        and len(input_df) > 0
-        and voltage_ok
+        and not state.get("rtm_dirty", False)
+        and (not validate_rtm_rows(df_full[INPUT_COLUMNS].copy()).has_errors)
+        and len(df_full) > 0
+        and not panel_rtm_errors
     )
-    if not voltage_ok:
-        st.error("Panel voltage is missing/invalid for RTM calculation.")
 
     if st.button("Recalculate RTM", disabled=not can_recalc):
         try:

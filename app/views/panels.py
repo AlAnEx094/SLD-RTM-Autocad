@@ -4,34 +4,7 @@ import uuid
 import streamlit as st
 
 from app import db
-
-
-def _validate_panel(data: dict) -> list[str]:
-    errors: list[str] = []
-    if not str(data.get("name") or "").strip():
-        errors.append("name is required")
-    if data.get("system_type") not in ("3PH", "1PH"):
-        errors.append("system_type must be 3PH or 1PH")
-    for field in ("du_limit_lighting_pct", "du_limit_other_pct"):
-        val = data.get(field)
-        if val is None:
-            errors.append(f"{field} is required")
-        else:
-            try:
-                if float(val) < 0:
-                    errors.append(f"{field} must be >= 0")
-            except (TypeError, ValueError):
-                errors.append(f"{field} must be a number")
-    for field in ("u_ll_v", "u_ph_v"):
-        val = data.get(field)
-        if val is None or val == "":
-            continue
-        try:
-            if float(val) <= 0:
-                errors.append(f"{field} must be > 0 when provided")
-        except (TypeError, ValueError):
-            errors.append(f"{field} must be a number")
-    return errors
+from app.validation import validate_panel
 
 
 def render_create_panel(conn, state: dict) -> str | None:
@@ -67,7 +40,7 @@ def render_create_panel(conn, state: dict) -> str | None:
         "du_limit_other_pct": du_limit_other_pct,
         "installation_type": installation_type.strip() or None,
     }
-    errors = _validate_panel(data)
+    errors = validate_panel(data)
     if errors:
         st.error("Panel not created: " + "; ".join(errors))
         return None
@@ -159,7 +132,7 @@ def render(conn, state: dict) -> None:
             "du_limit_other_pct": du_limit_other_pct,
             "installation_type": installation_type.strip() or None,
         }
-        errors = _validate_panel(data)
+        errors = validate_panel(data)
         if errors:
             st.error("Panel not saved: " + "; ".join(errors))
         else:
