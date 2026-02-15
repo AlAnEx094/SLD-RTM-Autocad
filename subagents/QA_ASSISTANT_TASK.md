@@ -19,13 +19,16 @@ MVP-0.3 добавляет потребителя 1 категории с дву
 Сценарий:
 
 - создать tmp SQLite
-- применить миграции: `0001_init.sql` + `0002_circuits.sql` + `0003_bus_and_feeds.sql`
+- применить миграции: `0001_init.sql` + `0002_circuits.sql` + `0003_bus_and_feeds.sql` + `0004_section_calc.sql`
 - вставить:
-  - `panels` (u_ph_v обязателен только если ты используешь ток; для MANUAL можно задавать i_a явно)
+  - `parent panel` (щит-родитель)
   - 2 `bus_sections`: `S1`, `S2`
-  - `consumer` C1:
-    - `load_ref_type='MANUAL'`
-    - задать `p_kw/q_kvar/s_kva/i_a` (как требует DB CHECK)
+  - `child panel` (щит-потребитель, например шкаф освещения)
+  - `rtm_panel_calc` для child panel:
+    - заполнить как минимум `pp_kw/qp_kvar/sp_kva/ip_a` (они будут читаться calc'ом)
+  - `consumer` C1 в parent panel:
+    - `load_ref_type='RTM_PANEL'`
+    - `load_ref_id = <child_panel_id>`
   - `consumer_feeds` для C1:
     - `NORMAL -> S1`
     - `RESERVE -> S2`

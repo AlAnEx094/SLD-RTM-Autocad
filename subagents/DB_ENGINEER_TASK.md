@@ -80,13 +80,27 @@ consumer_feeds(
 - вставить `'DEFAULT'` для каждой панели, где `NOT EXISTS (bus_sections WHERE panel_id = panels.id)`
 - `id` генерировать внутри SQLite (например `lower(hex(randomblob(16)))`), т.к. Python/CLI не должны быть обязательны для миграции.
 
-### 3) Обновить `db/schema.sql` (обязательно)
+### 3) Миграция `db/migrations/0004_section_calc.sql` (обязательно)
+
+Добавить таблицу результатов агрегации по секциям:
+
+`section_calc(panel_id, bus_section_id, mode, p_kw, q_kvar, s_kva, i_a, updated_at)`
+
+Требования:
+- `mode` в `('NORMAL','RESERVE')`
+- PK/unique: `(panel_id, bus_section_id, mode)`
+- FK:
+  - `panel_id` -> `panels(id)` ON DELETE CASCADE
+  - `bus_section_id` -> `bus_sections(id)` ON DELETE CASCADE
+
+### 4) Обновить `db/schema.sql` (обязательно)
 
 Добавить в snapshot новые таблицы и (если добавлялись) MANUAL поля в `consumers`.
 
 ## Deliverables
 
 - `db/migrations/0003_bus_and_feeds.sql`
+- `db/migrations/0004_section_calc.sql`
 - Обновлённый `db/schema.sql`
 
 ## Acceptance criteria
@@ -95,9 +109,10 @@ consumer_feeds(
   - `db/migrations/0001_init.sql`
   - `db/migrations/0002_circuits.sql`
   - `db/migrations/0003_bus_and_feeds.sql`
+  - `db/migrations/0004_section_calc.sql`
   - `db/seed_cable_sections.sql`
   проходит без ошибок.
-- Таблицы `bus_sections`, `consumers`, `consumer_feeds` созданы и имеют нужные ограничения.
+- Таблицы `bus_sections`, `consumers`, `consumer_feeds`, `section_calc` созданы и имеют нужные ограничения.
 - При наличии панелей (например, если миграция накатывается на непустую БД) после `0003`:
   - для каждой панели есть хотя бы одна `bus_sections` (DEFAULT), если ранее не было секций.
 - CHECK-ограничение для MANUAL нагрузки работает (MANUAL требует p/q/s/i, non-MANUAL запрещает их).
