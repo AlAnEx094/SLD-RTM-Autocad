@@ -6,6 +6,16 @@
 python3 -m pip install -r requirements.txt
 ```
 
+## Windows quickstart
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\activate
+pip install -r requirements.txt
+pytest -q
+streamlit run app\streamlit_app.py
+```
+
 ## Run
 
 ```bash

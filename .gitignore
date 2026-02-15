@@ -1,11 +1,16 @@
 __pycache__/
 *.pyc
 *.sqlite
+*.sqlite.bak_*
 .pytest_cache/
 .env
 
 # generated outputs
 out/
+
+# virtual environments
+.venv/
+.venv_lock/
 
 # local RTM PDF source (not committed)
 57ea1c8c988b2.pdf
