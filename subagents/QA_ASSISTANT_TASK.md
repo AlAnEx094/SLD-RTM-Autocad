@@ -1,4 +1,4 @@
-# QA_ASSISTANT TASK — feature/qa-tests (MVP-0.3 Bus section aggregation)
+# QA_ASSISTANT TASK — feature/qa-tests (MVP-0.4 Export DWG JSON payload)
 
 ROLE: QA_ASSISTANT  
 BRANCH: `feature/qa-tests` (создать изменения и коммиты только здесь)  
@@ -7,55 +7,49 @@ SCOPE (запрещено менять): `db/*`, `calc_core/*`, `tools/*`, `docs
 
 ## Контекст
 
-MVP-0.3 добавляет потребителя 1 категории с двумя вводами (NORMAL/RESERVE) на разные секции шин.
-Нужно проверить, что расчёт агрегации по секциям в режиме `NORMAL`:
-- учитывает нагрузку на NORMAL-секции
-- НЕ учитывает нагрузку на RESERVE-секции
+MVP-0.4 добавляет экспорт JSON payload (для будущей синхронизации с DWG).
+Экспорт читает **только результаты** из БД и не запускает расчёты.
 
 ## Что нужно сделать
 
-### 1) `tests/test_section_aggregation.py` (обязательно)
+### 1) `tests/test_export_payload_smoke.py` (обязательно)
 
-Сценарий:
+Smoke сценарий (shape-only):
 
 - создать tmp SQLite
-- применить миграции: `0001_init.sql` + `0002_circuits.sql` + `0003_bus_and_feeds.sql` + `0004_section_calc.sql`
-- вставить:
-  - `parent panel` (щит-родитель)
-  - 2 `bus_sections`: `S1`, `S2`
-  - `child panel` (щит-потребитель, например шкаф освещения)
-  - `rtm_panel_calc` для child panel:
-    - заполнить как минимум `pp_kw/qp_kvar/sp_kva/ip_a` (они будут читаться calc'ом)
-  - `consumer` C1 в parent panel:
-    - `load_ref_type='RTM_PANEL'`
-    - `load_ref_id = <child_panel_id>`
-  - `consumer_feeds` для C1:
-    - `NORMAL -> S1`
-    - `RESERVE -> S2`
-- вызвать `calc_section_loads(conn, panel_id, mode='NORMAL')`
+- применить миграции `0001..0004`
+- вставить минимальные данные:
+  - `panels` + обязательный `rtm_panel_calc` для `panel_id` (иначе export должен падать)
+  - несколько `bus_sections` + `section_calc` (хотя бы NORMAL для одной секции)
+  - несколько `circuits`
+  - `circuit_calc` только для части circuits, чтобы проверить `NO_CALC`
+- вызвать `calc_core.export_payload.build_payload(conn, panel_id)`
 - проверить:
-  - в результатах/таблице `section_calc` нагрузка присутствует у `S1`
-  - и отсутствует у `S2` (либо нулевая, но предпочтительно “нет строки”)
+  - `payload['version'] == '0.4'`
+  - ключи `panel/bus_sections/circuits/dwg_contract` присутствуют
+  - длины массивов соответствуют вставленным сущностям
+  - для цепи без `circuit_calc`: `calc.status == 'NO_CALC'` и поля расчёта `None`
 
-### 2) Smoke через CLI (опционально, но желательно)
-
-Если `tools/run_calc.py` получит `--calc-sections`, добавь smoke:
+### 2) Smoke через CLI `tools/export_payload.py` (желательно)
 
 - создать БД + данные как в тесте выше
-- запустить `python tools/run_calc.py --db <tmp> --panel-id <id> --calc-sections`
-- проверить, что команда завершилась успешно и результаты записаны/выведены
+- запустить `python tools/export_payload.py --db <tmp> --panel-id <id> --out <tmp.json>`
+- проверить:
+  - файл создан
+  - JSON парсится
+  - `version == '0.4'`
 
 ## Acceptance criteria
 
 - `pytest -q` зелёный
-- В `NORMAL` нагрузка сидит только на NORMAL-секции
+- Экспорт не зависит от запуска расчётов (только от наличия результатов в БД)
 
 ## Git workflow
 
 1) `git checkout -b feature/qa-tests` (или `git checkout feature/qa-tests`)
 2) Правки только в `tests/*`
 3) `git add tests`
-4) `git commit -m "test: add section aggregation tests (MVP-0.3)"`
+4) `git commit -m "test: add payload export smoke (MVP-0.4)"`
 
 ## Проверка
 

@@ -1,4 +1,4 @@
-# CALC_ENGINEER TASK — feature/calc-core (MVP-0.3 Section aggregation by bus_section)
+# CALC_ENGINEER TASK — feature/calc-core (MVP-0.4 Export DWG JSON payload)
 
 ROLE: CALC_ENGINEER  
 BRANCH: `feature/calc-core` (создать изменения и коммиты только здесь)  
@@ -7,51 +7,63 @@ SCOPE (запрещено менять): `db/*`, `tests/*`, `docs/*`, `cad_adapt
 
 ## Контекст
 
-MVP-0.3 добавляет поддержку потребителей 1 категории с двумя вводами
-`NORMAL`/`RESERVE` на разные секции шин.
+MVP-0.4 добавляет экспорт JSON payload для последующей синхронизации с DWG
+(без AutoCAD API).
 
-Нужно научиться агрегировать нагрузку по `bus_sections` для заданного режима питания.
-Пока считаем только `mode='NORMAL'`, но API закладываем под `RESERVE`.
-
-Принципы:
-- Не трогать расчёт RTM и ΔU: это отдельные подсистемы.
-- Не “самообманываться” через `circuits.bus_section_id` (его не вводим): источником связи являются `consumers` + `consumer_feeds`.
-- DB=истина: CalcCore только читает ввод и пишет результаты.
+Экспорт **читает только результаты** из SQLite и **не запускает расчёты**.
+Источники:
+- `rtm_panel_calc` (обязательно)
+- `circuit_calc` (опционально по каждой цепи)
+- `section_calc` (опционально по секциям/режимам)
 
 ## Цель
 
-1) Добавить `calc_core/section_aggregation.py`:
-   - `calc_section_loads(conn, panel_id: str, mode: str = 'NORMAL') -> int`
-   - читает `bus_sections`, `consumers`, `consumer_feeds` для `panel_id`
-   - агрегирует нагрузки по секциям шин для заданного `mode`:
-     - `mode='NORMAL'`: учитывать только `consumer_feeds.feed_role='NORMAL'`
-     - `mode='RESERVE'`: учитывать только `feed_role='RESERVE'` (код готовим, тестируем позже)
-   - пишет результаты в `section_calc` (upsert по `(panel_id, bus_section_id, mode)`) и/или возвращает структуру для печати в CLI
+### 1) CalcCore: `calc_core/export_payload.py`
 
-2) Нагрузку потребителя брать так (MVP):
-   - `load_ref_type='MANUAL'`: читать `consumers.p_kw/q_kvar/s_kva/i_a`
-   - `load_ref_type='RTM_PANEL'`: читать из `rtm_panel_calc` по `load_ref_id` (или по panel_id — только если это прямо так заведено в тестах/данных)
-   - `RTM_ROW` пока не обязателен
+Добавить модуль и функцию:
 
-3) Добавить `section_calc` запись (предпочтительно):
-   - таблица результатов (в DB):  
-     `section_calc(panel_id, bus_section_id, mode, p_kw, q_kvar, s_kva, i_a, updated_at)`
-   - upsert по `(panel_id, bus_section_id, mode)`
+- `build_payload(conn, panel_id: str) -> dict`
 
-4) Обновить `tools/run_calc.py`:
-   - флаг `--calc-sections` (mode NORMAL по умолчанию, опционально `--sections-mode NORMAL|RESERVE`)
-   - вывод: список секций и их I/P/S
+Payload контракт v0.4 (кратко):
+- `version='0.4'`
+- `generated_at` ISO8601 (UTC)
+- `panel`: данные из `panels` + `rtm_panel_calc` + лимиты ΔU
+- `bus_sections`: список секций из `bus_sections` с `modes` из `section_calc` (только существующие строки)
+- `circuits`: список цепей из `circuits` + `calc` из `circuit_calc`
+- `dwg_contract`: `{"mapping_version":"0.4","block_guid_attr":"GUID"}`
+
+Правила:
+- Если `rtm_panel_calc` отсутствует для `panel_id` → ошибка с понятным текстом (`ValueError`).
+- Если `circuit_calc` отсутствует для цепи → цепь всё равно в payload, но `calc.status='NO_CALC'` и поля расчёта `null`
+  (минимум `du_v/du_pct/du_limit_pct/s_mm2_selected`; `i_calc_a` можно брать из `circuits.i_calc_a`).
+- Для `section_calc`: включать только секции, что есть в `bus_sections`; внутри `modes` включать только те режимы, для которых есть строка.
+
+### 2) Tools: `tools/export_payload.py`
+
+CLI, который **не запускает расчёты**:
+
+- args: `--db`, `--panel-id`, `--out <path>`
+- подключение к SQLite read-only (`mode=ro` через URI)
+- вызвать `build_payload` и записать pretty JSON:
+  - `ensure_ascii=False`, `indent=2`
+
+### 3) Docs: контракт payload
+
+Добавить `docs/contracts/DWG_PAYLOAD_V0_4.md`:
+- перечисление полей
+- правила nullability/ошибок (`NO_CALC`, отсутствие `rtm_panel_calc`)
+- минимальный пример payload
 
 ## Acceptance criteria
 
-- В режиме `NORMAL` нагрузка попадает только в секции, связанные через `consumer_feeds(feed_role='NORMAL')`.
-- В `RESERVE` (если включать) аналогично по `feed_role='RESERVE'` (без тестов на MVP-0.3).
-- Backward-compat: существующие расчёты RTM и ΔU продолжают работать.
+- `tools/export_payload.py` не пишет в БД и не запускает расчёты.
+- Payload соответствует контракту v0.4, включая `NO_CALC` поведение.
+- Существующие CLI (`run_calc.py`, `export_results.py`) не ломаются.
 
 ## Git workflow
 
 1) `git checkout -b feature/calc-core` (или `git checkout feature/calc-core`)
 2) Правки только в `calc_core/*` и `tools/*`
 3) `git add calc_core tools`
-4) `git commit -m "calc: add bus section aggregation (MVP-0.3)"`
+4) `git commit -m "calc: add export payload v0.4 for DWG sync"`
 
