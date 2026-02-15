@@ -10,6 +10,18 @@ MVP-0.1: расчёт нагрузок по РТМ 36.18.32.4-92 (форма Ф6
 python tools/run_calc.py --db db/project.sqlite
 ```
 
+Агрегация нагрузок по секциям шин (MVP-0.3):
+
+```bash
+python tools/run_calc.py --db db/project.sqlite --calc-sections --sections-mode NORMAL
+```
+
+Deprecated alias (поддерживается для совместимости):
+
+```bash
+python tools/run_calc.py --db db/project.sqlite --calc-sections --mode NORMAL
+```
+
 Если в системе нет `python`, используйте:
 
 ```bash

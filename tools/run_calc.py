@@ -234,8 +234,15 @@ def main() -> int:
     ap.add_argument(
         "--sections-mode",
         choices=("NORMAL", "RESERVE"),
-        default="NORMAL",
+        default=None,
         help="Consumer feed role for section aggregation (default: NORMAL).",
+    )
+    ap.add_argument(
+        "--mode",
+        dest="mode_deprecated",
+        choices=("NORMAL", "RESERVE"),
+        default=None,
+        help="DEPRECATED alias for --sections-mode (use --sections-mode).",
     )
     args = ap.parse_args()
 
@@ -282,11 +289,16 @@ def main() -> int:
             con.close()
 
     if args.calc_sections:
+        effective_sections_mode = (
+            args.sections_mode
+            if args.sections_mode is not None
+            else (args.mode_deprecated if args.mode_deprecated is not None else "NORMAL")
+        )
         con = sqlite3.connect(db_path)
         try:
             con.execute("PRAGMA foreign_keys = ON;")
             section_loads = aggregate_section_loads(
-                con, panel_id, mode=args.sections_mode
+                con, panel_id, mode=effective_sections_mode
             )
         finally:
             con.close()
@@ -302,7 +314,7 @@ def main() -> int:
     if du_count is not None:
         print("du_circuits_processed:", du_count)
     if section_loads is not None:
-        print(f"sections_mode: {args.sections_mode}")
+        print(f"sections_mode: {effective_sections_mode}")
         if not section_loads:
             print("sections: none")
         else:
