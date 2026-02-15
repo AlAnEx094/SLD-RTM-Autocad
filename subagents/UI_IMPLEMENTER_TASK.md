@@ -1,18 +1,18 @@
-# UI_IMPLEMENTER TASK — feature/ui-app (MVP-UI v0.1 Streamlit Operator UI)
+# UI_IMPLEMENTER TASK — feature/ui-v0-2-impl (MVP-UI v0.2 Streamlit Operator UI)
 
 ROLE: UI_IMPLEMENTER  
-BRANCH: `feature/ui-app` (создать изменения и коммиты только здесь)  
+BRANCH: `feature/ui-v0-2-impl` (создать изменения и коммиты только здесь)  
 SCOPE (разрешено менять): `app/*`, `requirements.txt`, `docs/ui/STREAMLIT_UI_RUN.md`  
 SCOPE (запрещено менять): `db/*`, `calc_core/*`, `tools/*`, `tests/*`, `dwg/*`
 
 ## Контекст
 
-Нужно реализовать операторский Streamlit UI, который:
-- даёт “Excel-like” ввод/контроль для `rtm_rows` и просмотр `rtm_row_calc` + `rtm_panel_calc`;
-- запускает расчёты через существующие модули/CLI (без копирования формул);
-- экспортирует JSON payload v0.4 и CSV mapping v0.5 через существующие модули;
-- минимизирует риск повредить БД (транзакции, whitelists, подтверждения, read-only exports);
-- показывает статусы актуальности расчётов (stale/ok/unknown) по контракту в SPEC.
+Обновить Streamlit UI до MVP-UI v0.2, чтобы он был реально удобен в эксплуатации:
+- добавить Wizard создания щита (end-to-end flow);
+- реализовать **unified Load Table** страницу (ввод + calc + итоги + кнопки действий на одной странице);
+- усилить валидацию (строгие правила; блокировать Save/Calc/Export при ошибках);
+- сделать явные stale badges по контракту SPEC;
+- при этом **не ломать** существующий функционал (Calculate/Export/DB Connect) и архитектурные ограничения.
 
 ## Источник требований
 
@@ -43,15 +43,16 @@ SCOPE (запрещено менять): `db/*`, `calc_core/*`, `tools/*`, `test
 - `pytest -q` остаётся зелёным.
 - `streamlit run app/streamlit_app.py` запускается вручную.
 - В UI:
-  - “RTM Excel screen” работает (edit `rtm_rows`, view calc, summary)
-  - кнопки расчёта и экспорта вызывают существующие модули
-  - статусы stale отображаются согласно SPEC
+  - Wizard работает: создать панель → Load Table → calc → export
+  - unified Load Table: edit `rtm_rows`, read-only `rtm_row_calc`, read-only `rtm_panel_calc` на одной странице
+  - строгая валидация блокирует некорректный ввод и опасные действия
+  - stale badges отображаются согласно SPEC
   - calc таблицы только read-only
 
 ## Git workflow
 
-1) `git checkout -b feature/ui-app` (или `git checkout feature/ui-app`)
+1) `git checkout -b feature/ui-v0-2-impl` (или `git checkout feature/ui-v0-2-impl`)
 2) Правки только в `app/*`, `requirements.txt`, `docs/ui/STREAMLIT_UI_RUN.md`
 3) `git add app requirements.txt docs/ui/STREAMLIT_UI_RUN.md`
-4) `git commit -m "ui: add Streamlit operator app (MVP-UI v0.1)"`
+4) `git commit -m "ui: improve operator UX (MVP-UI v0.2)"`
 
