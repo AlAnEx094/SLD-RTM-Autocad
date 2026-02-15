@@ -1,4 +1,4 @@
-# QA_ASSISTANT TASK — feature/qa-tests (MVP-0.4 Export DWG JSON payload)
+# QA_ASSISTANT TASK — feature/qa-tests (MVP-0.5 DWG mapping + CSV attributes export)
 
 ROLE: QA_ASSISTANT  
 BRANCH: `feature/qa-tests` (создать изменения и коммиты только здесь)  
@@ -7,37 +7,30 @@ SCOPE (запрещено менять): `db/*`, `calc_core/*`, `tools/*`, `docs
 
 ## Контекст
 
-MVP-0.4 добавляет экспорт JSON payload (для будущей синхронизации с DWG).
+MVP-0.5 добавляет экспорт CSV атрибутов DWG на основе mapping YAML и payload v0.4.
 Экспорт читает **только результаты** из БД и не запускает расчёты.
 
 ## Что нужно сделать
 
-### 1) `tests/test_export_payload_smoke.py` (обязательно)
+### 1) `tests/test_export_attributes_csv_smoke.py` (обязательно)
 
-Smoke сценарий (shape-only):
+Smoke сценарий:
 
 - создать tmp SQLite
 - применить миграции `0001..0004`
-- вставить минимальные данные:
-  - `panels` + обязательный `rtm_panel_calc` для `panel_id` (иначе export должен падать)
-  - несколько `bus_sections` + `section_calc` (хотя бы NORMAL для одной секции)
-  - несколько `circuits`
-  - `circuit_calc` только для части circuits, чтобы проверить `NO_CALC`
-- вызвать `calc_core.export_payload.build_payload(conn, panel_id)`
+- вставить минимальные данные (как в payload smoke):
+  - `panels` + обязательный `rtm_panel_calc`
+  - `bus_sections` + `section_calc` (хотя бы NORMAL)
+  - `circuits` + `circuit_calc` (хотя бы для одной цепи, вторую оставить без calc для `NO_CALC`)
+- создать mapping YAML (в tmp dir) или использовать `dwg/mapping_v0_5.yaml`
+- вызвать CLI:
+  - `python tools/export_attributes_csv.py --db <tmp> --panel-id <id> --mapping <yaml> --out-dir <dir>`
 - проверить:
-  - `payload['version'] == '0.4'`
-  - ключи `panel/bus_sections/circuits/dwg_contract` присутствуют
-  - длины массивов соответствуют вставленным сущностям
-  - для цепи без `circuit_calc`: `calc.status == 'NO_CALC'` и поля расчёта `None`
-
-### 2) Smoke через CLI `tools/export_payload.py` (желательно)
-
-- создать БД + данные как в тесте выше
-- запустить `python tools/export_payload.py --db <tmp> --panel-id <id> --out <tmp.json>`
-- проверить:
-  - файл создан
-  - JSON парсится
-  - `version == '0.4'`
+  - файлы созданы: `attrs_panel.csv`, `attrs_circuits.csv`, `attrs_sections.csv`
+  - в файлах есть строки с ожидаемыми GUID:
+    - panel_id присутствует в `attrs_panel.csv`
+    - circuit_id присутствуют в `attrs_circuits.csv`
+    - bus_section_id присутствует в `attrs_sections.csv`
 
 ## Acceptance criteria
 
@@ -49,7 +42,7 @@ Smoke сценарий (shape-only):
 1) `git checkout -b feature/qa-tests` (или `git checkout feature/qa-tests`)
 2) Правки только в `tests/*`
 3) `git add tests`
-4) `git commit -m "test: add payload export smoke (MVP-0.4)"`
+4) `git commit -m "test: add attributes CSV export smoke (MVP-0.5)"`
 
 ## Проверка
 
