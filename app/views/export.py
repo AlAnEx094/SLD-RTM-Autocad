@@ -24,9 +24,20 @@ def render(conn, state: dict) -> None:
         st.info("Select a panel to export.")
         return
 
-    if not db.has_rtm_calc(conn, panel_id):
-        st.error("rtm_panel_calc is missing. Export is blocked.")
-        return
+    rtm_info = db.rtm_status(conn, panel_id, external_change=state.get("external_change", False))
+    if rtm_info.status != "OK":
+        st.error(f"RTM status is {rtm_info.status}. Export is blocked by default.")
+        with st.popover("Why?"):
+            st.write(f"status: `{rtm_info.status}`")
+            if rtm_info.reason:
+                st.write(f"reason: `{rtm_info.reason}`")
+            if rtm_info.calc_updated_at:
+                st.write(f"calc_updated_at: `{rtm_info.calc_updated_at}`")
+            if rtm_info.effective_input_at:
+                st.write(f"effective_input_at: `{rtm_info.effective_input_at}`")
+        allow = st.checkbox("Export despite non-OK RTM status (not recommended)")
+        if not allow:
+            return
 
     st.subheader("JSON payload (v0.4)")
     default_json = Path("out") / f"payload_{panel_id[:8]}.json"
