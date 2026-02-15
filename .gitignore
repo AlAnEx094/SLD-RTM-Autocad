@@ -6,3 +6,6 @@ __pycache__/
 
 # generated outputs
 out/
+
+# local RTM PDF source (not committed)
+57ea1c8c988b2.pdf

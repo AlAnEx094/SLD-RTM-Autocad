@@ -1,4 +1,4 @@
-# DB_ENGINEER TASK — feature/db-layer
+# DB_ENGINEER TASK — feature/db-layer (MVP-0.3 Bus sections + consumers feeds)
 
 ROLE: DB_ENGINEER  
 BRANCH: `feature/db-layer` (создать изменения и коммиты только здесь)  
@@ -7,85 +7,121 @@ SCOPE (запрещено менять): `calc_core/*`, `tools/*`, `tests/*`, `d
 
 ## Контекст
 
-Нужно устранить нормативную “дыру” и разнобой `source` в `kr_table` seed.
+MVP-0.3 добавляет поддержку потребителя 1 категории с двумя вводами:
+`NORMAL`/`RESERVE` от разных секций шин ЩСН.
 
-Требование: **полностью** заполнить `kr_table` значениями из **Таблицы 1 РТМ 36.18.32.4-92** (для сетей до 1000 В)
-и унифицировать `source`.
+Нужно хранить:
+- секции шин (`bus_sections`)
+- потребителей (`consumers`)
+- привязки вводов потребителей к секциям (`consumer_feeds`)
 
-Источник данных: локальный PDF **`57ea1c8c988b2.pdf`** (в окружении/репозитории).
-Если PDF недоступен по имени в корне проекта — это **блокер**: не выдумывать значения.
+Важно:
+- DB = истина (ввод отдельно от расчёта).
+- Никаких изменений в существующих `circuits/*` и ΔU-таблицах: они живут отдельно.
 
 ## Цель
 
-### A) Нормализовать `source` (обязательно)
+### 1) Миграция `db/migrations/0003_bus_and_feeds.sql` (обязательно)
 
-Все записи Таблицы 1 должны иметь:
+Добавить таблицы:
 
-`source = 'RTM36.18.32.4-92_tab1'`
+#### A) `bus_sections`
 
-Никаких `*_EXAMPLE`, никаких `TODO_FILL_FROM_RTM` в финальном seed.
+`bus_sections(id TEXT PK, panel_id TEXT FK, name TEXT NOT NULL)`
 
-### B) Полностью заполнить `kr_table` (обязательно)
+- `panel_id` -> `panels(id)` ON DELETE CASCADE
 
-- Извлечь **всю** Таблицу 1 РТМ (<=1000 В): все строки `ne` и все столбцы `Ki`, которые есть в методике.
-- Внести в `db/seed_kr_table.sql` **единым блоком**:
+#### B) `consumers`
 
 ```sql
-INSERT OR REPLACE INTO kr_table (ne, ki, kr, source) VALUES
-  (...),
-  (...),
-  ...
-;
+consumers(
+  id TEXT PRIMARY KEY,
+  panel_id TEXT NOT NULL REFERENCES panels(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  load_ref_type TEXT NOT NULL DEFAULT 'RTM_PANEL'
+    CHECK(load_ref_type IN ('RTM_PANEL','RTM_ROW','MANUAL')),
+  load_ref_id TEXT NOT NULL,
+  notes TEXT
+)
 ```
 
-Требования к данным:
-- `ne`: INTEGER (все табличные значения, включая непоследовательные типа 17..25, 30, 35, 40, ... если они есть)
-- `ki`: REAL ровно как в таблице (обычно 0.10, 0.15, 0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.80 и т.п.)
-- `kr`: REAL **строго из таблицы**, без “на глаз”
-- `source`: всегда `'RTM36.18.32.4-92_tab1'`
+MVP-решение для тестов: поддержать `MANUAL` нагрузку прямо в `consumers` (чтобы не мокать RTM):
 
-### C) Проверка целостности seed (желательно)
+- добавить nullable-поля:
+  - `p_kw REAL`
+  - `q_kvar REAL`
+  - `s_kva REAL`
+  - `i_a REAL`
+- добавить CHECK:
+  - если `load_ref_type='MANUAL'` → все 4 поля NOT NULL
+  - если `load_ref_type<>'MANUAL'` → все 4 поля NULL
 
-В конец `db/seed_kr_table.sql` добавь комментарий:
+#### C) `consumer_feeds`
 
-`-- EXPECTED: unique_ne = <N>, unique_ki = <M>, total_rows = N*M`
+```sql
+consumer_feeds(
+  id TEXT PRIMARY KEY,
+  consumer_id TEXT NOT NULL REFERENCES consumers(id) ON DELETE CASCADE,
+  bus_section_id TEXT NOT NULL REFERENCES bus_sections(id) ON DELETE CASCADE,
+  feed_role TEXT NOT NULL CHECK(feed_role IN ('NORMAL','RESERVE'))
+)
+```
 
-Опционально (если успеешь): добавь `db/checks_kr_table.sql`, который после загрузки проверяет:
-- `SELECT COUNT(*)` == `N*M`
-- набор `Ki` совпадает ожидаемому
-- `SELECT source, COUNT(*) ...` даёт **ровно одну** строку `RTM36.18.32.4-92_tab1`
+Опциональные индексы:
+- `consumer_feeds(consumer_id)`
+- `consumer_feeds(bus_section_id)`
+
+### 2) Миграция данных: default bus section (обязательно)
+
+Требование: для каждого `panels.id` должна существовать хотя бы 1 запись `bus_sections`
+с именем `'DEFAULT'`, если для панели секций ещё нет.
+
+Сделать это в конце `0003_bus_and_feeds.sql` через `INSERT ... SELECT`:
+- вставить `'DEFAULT'` для каждой панели, где `NOT EXISTS (bus_sections WHERE panel_id = panels.id)`
+- `id` генерировать внутри SQLite (например `lower(hex(randomblob(16)))`), т.к. Python/CLI не должны быть обязательны для миграции.
+
+### 3) Миграция `db/migrations/0004_section_calc.sql` (обязательно)
+
+Добавить таблицу результатов агрегации по секциям:
+
+`section_calc(panel_id, bus_section_id, mode, p_kw, q_kvar, s_kva, i_a, updated_at)`
+
+Требования:
+- `mode` в `('NORMAL','RESERVE')`
+- PK/unique: `(panel_id, bus_section_id, mode)`
+- FK:
+  - `panel_id` -> `panels(id)` ON DELETE CASCADE
+  - `bus_section_id` -> `bus_sections(id)` ON DELETE CASCADE
+
+### 4) Обновить `db/schema.sql` (обязательно)
+
+Добавить в snapshot новые таблицы и (если добавлялись) MANUAL поля в `consumers`.
 
 ## Deliverables
 
-- Обновить **только** `db/seed_kr_table.sql`
-- (опционально) добавить `db/checks_kr_table.sql`
-- Не менять `db/migrations/0001_init.sql` и `db/schema.sql`, если это не требуется
+- `db/migrations/0003_bus_and_feeds.sql`
+- `db/migrations/0004_section_calc.sql`
+- Обновлённый `db/schema.sql`
 
 ## Acceptance criteria
 
-- В ветке `feature/db-layer` после изменений:
-  - миграция + seed применяются на пустую SQLite без ошибок
-  - `kr_table` заполнена полностью (матрица `ne x ki`, без дыр)
-  - `source` в `kr_table` **один**: `'RTM36.18.32.4-92_tab1'`
+- На пустой БД последовательное выполнение:
+  - `db/migrations/0001_init.sql`
+  - `db/migrations/0002_circuits.sql`
+  - `db/migrations/0003_bus_and_feeds.sql`
+  - `db/migrations/0004_section_calc.sql`
+  - `db/seed_cable_sections.sql`
+  проходит без ошибок.
+- Таблицы `bus_sections`, `consumers`, `consumer_feeds`, `section_calc` созданы и имеют нужные ограничения.
+- При наличии панелей (например, если миграция накатывается на непустую БД) после `0003`:
+  - для каждой панели есть хотя бы одна `bus_sections` (DEFAULT), если ранее не было секций.
+- CHECK-ограничение для MANUAL нагрузки работает (MANUAL требует p/q/s/i, non-MANUAL запрещает их).
 
 ## Git workflow (обязательно)
 
-Выполни:
+1) `git checkout -b feature/db-layer` (или `git checkout feature/db-layer`, если уже существует)
+2) Правки только в `db/*`
+3) `git add db`
+4) `git commit -m "db: add bus sections and consumer feeds (MVP-0.3)"`
 
-1) `git checkout feature/db-layer`
-2) Внести правки только в `db/*`
-3) `git add db/seed_kr_table.sql` (и `db/checks_kr_table.sql`, если добавлялся)
-4) `git commit -m "db: fully seed kr_table from RTM table 1 (<=1000V) and normalize source"`
-
-## Проверка
-
-Запусти DB-only sanity check (не pytest):
-- создать временную SQLite
-- применить `db/migrations/0001_init.sql` + `db/seed_kr_table.sql`
-- выполнить:
-  - `SELECT COUNT(*) FROM kr_table;`
-  - `SELECT COUNT(DISTINCT ne), COUNT(DISTINCT ki) FROM kr_table;`
-  - `SELECT source, COUNT(*) FROM kr_table GROUP BY source;`
-
-Если PDF `57ea1c8c988b2.pdf` не найден — **остановись и верни блокирующую проблему** (без “TODO” в данных).
 

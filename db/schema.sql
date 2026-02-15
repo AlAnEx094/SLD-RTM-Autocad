@@ -1,8 +1,8 @@
 -- schema.sql
--- Агрегированный слепок схемы (MVP-0.2).
+-- Агрегированный слепок схемы (MVP-0.3 +0004).
 -- Источник истины для эволюции схемы — миграции в db/migrations/.
 --
--- На MVP-0.2 схема == db/migrations/0001_init.sql + db/migrations/0002_circuits.sql
+-- На MVP-0.3 схема == db/migrations/0001_init.sql + db/migrations/0002_circuits.sql + db/migrations/0003_bus_and_feeds.sql + db/migrations/0004_section_calc.sql
 -- (вставлено вручную, без магии).
 
 PRAGMA foreign_keys = ON;
@@ -18,6 +18,64 @@ CREATE TABLE IF NOT EXISTS panels (
   du_limit_other_pct REAL NOT NULL DEFAULT 5.0,
   installation_type TEXT DEFAULT 'A'
 );
+
+-- Секции шин (внутри щита)
+CREATE TABLE IF NOT EXISTS bus_sections (
+  id TEXT PRIMARY KEY,
+  panel_id TEXT NOT NULL REFERENCES panels(id) ON DELETE CASCADE,
+  name TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_bus_sections_panel_id ON bus_sections(panel_id);
+
+-- Потребители (могут ссылаться на РТМ либо задаваться вручную)
+CREATE TABLE IF NOT EXISTS consumers (
+  id TEXT PRIMARY KEY,
+  panel_id TEXT NOT NULL REFERENCES panels(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  load_ref_type TEXT NOT NULL DEFAULT 'RTM_PANEL' CHECK (load_ref_type IN ('RTM_PANEL', 'RTM_ROW', 'MANUAL')),
+  load_ref_id TEXT NOT NULL,
+  notes TEXT,
+  p_kw REAL,
+  q_kvar REAL,
+  s_kva REAL,
+  i_a REAL,
+  CHECK (
+    (load_ref_type='MANUAL' AND p_kw IS NOT NULL AND q_kvar IS NOT NULL AND s_kva IS NOT NULL AND i_a IS NOT NULL)
+    OR
+    (load_ref_type<>'MANUAL' AND p_kw IS NULL AND q_kvar IS NULL AND s_kva IS NULL AND i_a IS NULL)
+  )
+);
+
+CREATE INDEX IF NOT EXISTS idx_consumers_panel_id ON consumers(panel_id);
+
+-- Питания потребителей (NORMAL/RESERVE), привязка к секциям шин
+CREATE TABLE IF NOT EXISTS consumer_feeds (
+  id TEXT PRIMARY KEY,
+  consumer_id TEXT NOT NULL REFERENCES consumers(id) ON DELETE CASCADE,
+  bus_section_id TEXT NOT NULL REFERENCES bus_sections(id) ON DELETE CASCADE,
+  feed_role TEXT NOT NULL CHECK (feed_role IN ('NORMAL', 'RESERVE'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_consumer_feeds_consumer_id ON consumer_feeds(consumer_id);
+CREATE INDEX IF NOT EXISTS idx_consumer_feeds_bus_section_id ON consumer_feeds(bus_section_id);
+
+-- Расчёт по секциям шин (NORMAL/RESERVE)
+CREATE TABLE IF NOT EXISTS section_calc (
+  panel_id TEXT NOT NULL REFERENCES panels(id) ON DELETE CASCADE,
+  bus_section_id TEXT NOT NULL REFERENCES bus_sections(id) ON DELETE CASCADE,
+  mode TEXT NOT NULL CHECK(mode IN ('NORMAL','RESERVE')),
+  p_kw REAL NOT NULL,
+  q_kvar REAL NOT NULL,
+  s_kva REAL NOT NULL,
+  i_a REAL NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY(panel_id, bus_section_id, mode)
+);
+
+CREATE INDEX IF NOT EXISTS idx_section_calc_panel_id ON section_calc(panel_id);
+CREATE INDEX IF NOT EXISTS idx_section_calc_bus_section_id ON section_calc(bus_section_id);
+CREATE INDEX IF NOT EXISTS idx_section_calc_mode ON section_calc(mode);
 
 -- Цепи (линии)
 CREATE TABLE IF NOT EXISTS circuits (

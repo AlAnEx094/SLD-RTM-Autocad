@@ -1,4 +1,4 @@
-# QA_ASSISTANT TASK — feature/qa-tests
+# QA_ASSISTANT TASK — feature/qa-tests (MVP-0.3 Bus section aggregation)
 
 ROLE: QA_ASSISTANT  
 BRANCH: `feature/qa-tests` (создать изменения и коммиты только здесь)  
@@ -7,58 +7,57 @@ SCOPE (запрещено менять): `db/*`, `calc_core/*`, `tools/*`, `docs
 
 ## Контекст
 
-В baseline сейчас `pytest -q` падает по причинам:
-
-1) `db/seed_kr_table.sql` минимальный и не покрывает ожидания старых тестов (например `ki=0.10` и интерполяционные точки).
-2) Smoke тест вставляет панель в `panels` без `system_type`, а в схеме `system_type NOT NULL`.
-3) `calc_core/tools` будут приведены к схеме в ветке `feature/calc-core` (другим агентом).
-
-## Цель
-
-Сделать тесты **устойчивыми к минимальному seed** и актуальной схеме:
-
-- Тестировать **контракт поведения**, а не конкретные “табличные числа”, если они EXAMPLE.
-- Использовать только точки, которые гарантированы минимальным seed (после db-layer изменений: `ki=0.10/0.60/0.70/0.80` для `ne=4`).
+MVP-0.3 добавляет потребителя 1 категории с двумя вводами (NORMAL/RESERVE) на разные секции шин.
+Нужно проверить, что расчёт агрегации по секциям в режиме `NORMAL`:
+- учитывает нагрузку на NORMAL-секции
+- НЕ учитывает нагрузку на RESERVE-секции
 
 ## Что нужно сделать
 
-### A) `tests/test_kr_resolver.py`
+### 1) `tests/test_section_aggregation.py` (обязательно)
 
-- Обновить тесты так, чтобы они:
-  - проверяли clamp:
-    - `ki > 0.80` -> используется `0.80` и возвращается **табличное значение из БД**
-    - `ki < 0.10` -> используется `0.10` и возвращается **табличное значение из БД**
-  - проверяли `ne_tab` округлением вверх (например `ne=3` -> `ne_tab=4`)
-  - проверяли линейную интерполяцию по `Ki` **между `0.70` и `0.80`**, например на `ki=0.71`
+Сценарий:
 
-Важно: если значения `kr` в seed помечены как EXAMPLE, тесты не должны “знать” их заранее.
-Лучший паттерн: **читать `kr` из БД** и вычислять ожидаемое значение по формуле интерполяции.
+- создать tmp SQLite
+- применить миграции: `0001_init.sql` + `0002_circuits.sql` + `0003_bus_and_feeds.sql` + `0004_section_calc.sql`
+- вставить:
+  - `parent panel` (щит-родитель)
+  - 2 `bus_sections`: `S1`, `S2`
+  - `child panel` (щит-потребитель, например шкаф освещения)
+  - `rtm_panel_calc` для child panel:
+    - заполнить как минимум `pp_kw/qp_kvar/sp_kva/ip_a` (они будут читаться calc'ом)
+  - `consumer` C1 в parent panel:
+    - `load_ref_type='RTM_PANEL'`
+    - `load_ref_id = <child_panel_id>`
+  - `consumer_feeds` для C1:
+    - `NORMAL -> S1`
+    - `RESERVE -> S2`
+- вызвать `calc_section_loads(conn, panel_id, mode='NORMAL')`
+- проверить:
+  - в результатах/таблице `section_calc` нагрузка присутствует у `S1`
+  - и отсутствует у `S2` (либо нулевая, но предпочтительно “нет строки”)
 
-### B) `tests/test_rtm_smoke.py`
+### 2) Smoke через CLI (опционально, но желательно)
 
-Привести к актуальной схеме (после фикса calc-core):
+Если `tools/run_calc.py` получит `--calc-sections`, добавь smoke:
 
-- при вставке `panels` обязательно указывать:
-  - `system_type` (`'3PH'` или `'1PH'`)
-  - напряжения (`u_ll_v`, `u_ph_v`) согласованно
-- создавать входные строки в `rtm_rows`, а не `rtm_input_rows`
-- smoke должен проверять, что после запуска расчёта:
-  - есть строки в `rtm_row_calc` для `rtm_rows`
-  - есть строка `rtm_panel_calc` для `panel_id`
+- создать БД + данные как в тесте выше
+- запустить `python tools/run_calc.py --db <tmp> --panel-id <id> --calc-sections`
+- проверить, что команда завершилась успешно и результаты записаны/выведены
 
-### C) Phase balance тест
+## Acceptance criteria
 
-Добавлять `tests/test_phase_balance.py` **только если** существует `calc_core/phase_balance.py`
-и он реально пишет в `panel_phase_calc`. Если файла нет — не добавлять тест.
+- `pytest -q` зелёный
+- В `NORMAL` нагрузка сидит только на NORMAL-секции
 
 ## Git workflow
 
-1) `git checkout feature/qa-tests`
+1) `git checkout -b feature/qa-tests` (или `git checkout feature/qa-tests`)
 2) Правки только в `tests/*`
 3) `git add tests`
-4) `git commit -m "test: align Kr and RTM smoke tests to minimal seed and schema"`
+4) `git commit -m "test: add section aggregation tests (MVP-0.3)"`
 
 ## Проверка
 
-- Запусти `python3 -m pytest -q` в ветке и добейся зелёного (после того, как db-layer и calc-core изменения смержены/подтянуты, если нужно).
+- `pytest -q`
 

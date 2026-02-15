@@ -1,95 +1,57 @@
-# CALC_ENGINEER TASK — feature/calc-core
+# CALC_ENGINEER TASK — feature/calc-core (MVP-0.3 Section aggregation by bus_section)
 
 ROLE: CALC_ENGINEER  
 BRANCH: `feature/calc-core` (создать изменения и коммиты только здесь)  
 SCOPE (разрешено менять): `calc_core/*` и `tools/*`  
 SCOPE (запрещено менять): `db/*`, `tests/*`, `docs/*`, `cad_adapter/*`
 
-## Контекст (baseline)
+## Контекст
 
-Сейчас есть несогласованность: `calc_core/rtm_f636.py` и `tools/run_calc.py` обращаются к таблицам
-`rtm_input_rows / calc_runs / rtm_calc_rows`, которых **нет** в актуальной схеме.
+MVP-0.3 добавляет поддержку потребителей 1 категории с двумя вводами
+`NORMAL`/`RESERVE` на разные секции шин.
 
-Актуальная схема (см. `db/migrations/0001_init.sql`):
+Нужно научиться агрегировать нагрузку по `bus_sections` для заданного режима питания.
+Пока считаем только `mode='NORMAL'`, но API закладываем под `RESERVE`.
 
-- `panels(id, name, system_type('3PH'|'1PH'), u_ll_v, u_ph_v)`
-- `rtm_rows(id, panel_id, name, n, pn_kw, ki, cos_phi, tg_phi, phases, phase_mode, phase_fixed, ...)`
-- `rtm_row_calc(row_id PK/FK -> rtm_rows.id, pn_total, ki_pn, ki_pn_tg, n_pn2)`
-- `rtm_panel_calc(panel_id PK/FK -> panels.id, sum_pn, sum_ki_pn, sum_ki_pn_tg, sum_np2, ne, kr, pp_kw, qp_kvar, sp_kva, ip_a, updated_at)`
-- `panel_phase_calc(panel_id PK/FK -> panels.id, ...)` (пока может оставаться пустой, если phase_balance ещё не реализован)
-- `kr_table(ne, ki, kr, source)` (Kr lookup по контракту)
+Принципы:
+- Не трогать расчёт RTM и ΔU: это отдельные подсистемы.
+- Не “самообманываться” через `circuits.bus_section_id` (его не вводим): источником связи являются `consumers` + `consumer_feeds`.
+- DB=истина: CalcCore только читает ввод и пишет результаты.
 
 ## Цель
 
-Привести `calc_core` и `tools/run_calc.py` к **актуальной SQLite схеме**, не меняя контрактов:
+1) Добавить `calc_core/section_aggregation.py`:
+   - `calc_section_loads(conn, panel_id: str, mode: str = 'NORMAL') -> int`
+   - читает `bus_sections`, `consumers`, `consumer_feeds` для `panel_id`
+   - агрегирует нагрузки по секциям шин для заданного `mode`:
+     - `mode='NORMAL'`: учитывать только `consumer_feeds.feed_role='NORMAL'`
+     - `mode='RESERVE'`: учитывать только `feed_role='RESERVE'` (код готовим, тестируем позже)
+   - пишет результаты в `section_calc` (upsert по `(panel_id, bus_section_id, mode)`) и/или возвращает структуру для печати в CLI
 
-- **Kr контракт** НЕ менять: clamp Ki, ne_tab вверх, линейная интерполяция по Ki в строке `ne_tab`, таблица в SQLite.
-- **PhaseBalance контракт** НЕ менять (если файла/логики нет — не придумывать; только оставить совместимость по таблицам).
+2) Нагрузку потребителя брать так (MVP):
+   - `load_ref_type='MANUAL'`: читать `consumers.p_kw/q_kvar/s_kva/i_a`
+   - `load_ref_type='RTM_PANEL'`: читать из `rtm_panel_calc` по `load_ref_id` (или по panel_id — только если это прямо так заведено в тестах/данных)
+   - `RTM_ROW` пока не обязателен
 
-## Что нужно сделать
+3) Добавить `section_calc` запись (предпочтительно):
+   - таблица результатов (в DB):  
+     `section_calc(panel_id, bus_section_id, mode, p_kw, q_kvar, s_kva, i_a, updated_at)`
+   - upsert по `(panel_id, bus_section_id, mode)`
 
-### 1) Переписать расчёт RTM на таблицы `rtm_rows/rtm_row_calc/rtm_panel_calc`
-
-В `calc_core/rtm_f636.py`:
-
-- читать входные строки из `rtm_rows` по `panel_id`
-- записывать:
-  - per-row расчёт в `rtm_row_calc` (upsert по `row_id`)
-  - итоги по щиту в `rtm_panel_calc` (upsert по `panel_id`, обновляя `updated_at`)
-
-Минимальный набор вычислений для MVP (консервативно):
-
-- `pn_total` = `n * pn_kw`
-- `ki_pn` = `ki * pn_total`
-- `ki_pn_tg` = `ki_pn * tg_phi`, где:
-  - если `tg_phi` задан, использовать его
-  - иначе если `cos_phi` задан, вычислить `tg_phi = tan(acos(cos_phi))`
-  - иначе `tg_phi = 0` (консервативно)
-- `n_pn2` = `n * pn_kw * pn_kw`
-
-Итоги:
-
-- `sum_pn` = Σ(pn_total)
-- `sum_ki_pn` = Σ(ki_pn)
-- `sum_ki_pn_tg` = Σ(ki_pn_tg)
-- `sum_np2` = Σ(n_pn2)
-- `ne` = (sum_pn ** 2) / sum_np2  (если sum_np2 > 0, иначе ошибка)
-- `ki_group` = sum_ki_pn / sum_pn (если sum_pn > 0, иначе ошибка)
-- `kr` = `get_kr(db_path, ne, ki_group)` по контракту Kr
-- `pp_kw` = `kr * sum_ki_pn`
-- `qp_kvar` = `kr * sum_ki_pn_tg`
-- `sp_kva` = sqrt(pp_kw**2 + qp_kvar**2)
-- `ip_a`:
-  - для `panels.system_type='3PH'`: \( I = S*1000 / (\sqrt{3} * U_{LL}) \) (требует `u_ll_v`)
-  - для `panels.system_type='1PH'`: \( I = S*1000 / U_{PH} \) (требует `u_ph_v`)
-
-Доп. правило (если применимо в RTM_F636 контракте проекта): `pp_kw >= pn_max`:
-- `pn_max` = max(pn_total) по строкам
-- если `pp_kw < pn_max`, то `pp_kw = pn_max` (и пересчитать `sp_kva`/`ip_a` по обновлённому `pp_kw`, `qp_kvar` оставить как есть)
-
-### 2) Обновить `tools/run_calc.py`
-
-- Убрать обращения к несуществующим таблицам.
-- Создавать демо-данные в `panels` и `rtm_rows` (если в щите нет строк).
-  - При вставке `panels` обязательно заполнить `system_type` и соответствующие напряжения:
-    - 3PH: `system_type='3PH'`, `u_ll_v=400`, `u_ph_v=230`
-  - Для `rtm_rows` выбрать демо‑строки с `phase_mode='NONE'` (пока фазировку не считаем) и `phases=3`.
-
-### 3) Совместимость с `cad_adapter`
-
-Не менять `cad_adapter`, но обеспечить, чтобы после расчёта существовала строка в `rtm_panel_calc` для `panel_id`
-(иначе cad_adapter payload будет `null`).
+4) Обновить `tools/run_calc.py`:
+   - флаг `--calc-sections` (mode NORMAL по умолчанию, опционально `--sections-mode NORMAL|RESERVE`)
+   - вывод: список секций и их I/P/S
 
 ## Acceptance criteria
 
-- Код в `feature/calc-core` не обращается к `rtm_input_rows/calc_runs/rtm_calc_rows`.
-- `tools/run_calc.py` создаёт БД (через миграции) и считает один щит, записывая `rtm_row_calc` и `rtm_panel_calc`.
-- `python3 -m pytest -q` **пока может падать** (QA починит тесты), но падения не должны быть из‑за SQL таблиц “не существует”.
+- В режиме `NORMAL` нагрузка попадает только в секции, связанные через `consumer_feeds(feed_role='NORMAL')`.
+- В `RESERVE` (если включать) аналогично по `feed_role='RESERVE'` (без тестов на MVP-0.3).
+- Backward-compat: существующие расчёты RTM и ΔU продолжают работать.
 
 ## Git workflow
 
-1) `git checkout feature/calc-core`
+1) `git checkout -b feature/calc-core` (или `git checkout feature/calc-core`)
 2) Правки только в `calc_core/*` и `tools/*`
 3) `git add calc_core tools`
-4) `git commit -m "calc: align RTM calc to rtm_rows schema"`
+4) `git commit -m "calc: add bus section aggregation (MVP-0.3)"`
 
