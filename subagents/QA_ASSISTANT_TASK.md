@@ -1,4 +1,4 @@
-# QA_ASSISTANT TASK — feature/qa-tests
+# QA_ASSISTANT TASK — feature/qa-tests (MVP-0.2 Voltage Drop)
 
 ROLE: QA_ASSISTANT  
 BRANCH: `feature/qa-tests` (создать изменения и коммиты только здесь)  
@@ -7,58 +7,71 @@ SCOPE (запрещено менять): `db/*`, `calc_core/*`, `tools/*`, `docs
 
 ## Контекст
 
-В baseline сейчас `pytest -q` падает по причинам:
+MVP-0.2 добавляет расчёт падения напряжения ΔU и подбор минимального сечения по ΔU.
+DB изменения (circuits/circuit_calc/cable_sections + лимиты в panels) делает DB_ENGINEER,
+CalcCore (`calc_core/voltage_drop.py` + `tools/run_calc.py --calc-du`) делает CALC_ENGINEER.
 
-1) `db/seed_kr_table.sql` минимальный и не покрывает ожидания старых тестов (например `ki=0.10` и интерполяционные точки).
-2) Smoke тест вставляет панель в `panels` без `system_type`, а в схеме `system_type NOT NULL`.
-3) `calc_core/tools` будут приведены к схеме в ветке `feature/calc-core` (другим агентом).
-
-## Цель
-
-Сделать тесты **устойчивыми к минимальному seed** и актуальной схеме:
-
-- Тестировать **контракт поведения**, а не конкретные “табличные числа”, если они EXAMPLE.
-- Использовать только точки, которые гарантированы минимальным seed (после db-layer изменений: `ki=0.10/0.60/0.70/0.80` для `ne=4`).
+Твоя задача — добавить контрактные тесты, которые фиксируют:
+- учёт `X` и `sinφ`
+- правило `b` (1/2) для 1PH/3PH/NORMAL/FULL_UNBALANCED
+- правило увеличения лимита при `length_m > 100`
+- корректный выбор **минимального** `S` из `cable_sections`
 
 ## Что нужно сделать
 
-### A) `tests/test_kr_resolver.py`
+### 1) `tests/test_voltage_drop.py` (обязательно)
 
-- Обновить тесты так, чтобы они:
-  - проверяли clamp:
-    - `ki > 0.80` -> используется `0.80` и возвращается **табличное значение из БД**
-    - `ki < 0.10` -> используется `0.10` и возвращается **табличное значение из БД**
-  - проверяли `ne_tab` округлением вверх (например `ne=3` -> `ne_tab=4`)
-  - проверяли линейную интерполяцию по `Ki` **между `0.70` и `0.80`**, например на `ki=0.71`
+Покрыть кейсы:
 
-Важно: если значения `kr` в seed помечены как EXAMPLE, тесты не должны “знать” их заранее.
-Лучший паттерн: **читать `kr` из БД** и вычислять ожидаемое значение по формуле интерполяции.
+1) **1PH Cu**:
+   - при увеличении `S` `du_pct` уменьшается
+   - `select_min_section_by_du` выбирает минимальное `S`, удовлетворяющее лимиту
 
-### B) `tests/test_rtm_smoke.py`
+2) **3PH NORMAL**:
+   - при прочих равных `b=1` даёт `du_v` в 2 раза меньше, чем `b=2`
+   - проверить через сравнение двух circuits: (3PH NORMAL) vs (3PH FULL_UNBALANCED) с одинаковыми входами
 
-Привести к актуальной схеме (после фикса calc-core):
+3) **FULL_UNBALANCED**:
+   - `phases=3` + `unbalance_mode='FULL_UNBALANCED'` → `b=2` (как 1PH)
 
-- при вставке `panels` обязательно указывать:
-  - `system_type` (`'3PH'` или `'1PH'`)
-  - напряжения (`u_ll_v`, `u_ph_v`) согласованно
-- создавать входные строки в `rtm_rows`, а не `rtm_input_rows`
-- smoke должен проверять, что после запуска расчёта:
-  - есть строки в `rtm_row_calc` для `rtm_rows`
-  - есть строка `rtm_panel_calc` для `panel_id`
+4) **length > 100 m**:
+   - лимит увеличивается на:
+     - `add_pct = min(0.005 * (L - 100), 0.5)`
+     - `effective = base + add_pct`
+   - и это влияет на выбранное `S` (подготовь данные так, чтобы на `L<=100` одно S не проходило,
+     а на `L>100` стало проходить, либо наоборот — главное, чтобы тест ловил правило).
 
-### C) Phase balance тест
+Важно:
+- Не выдумывай численные “ожидания” ΔU из головы. Для проверок используй:
+  - монотонность (du падает при росте S)
+  - отношение (b=1 vs b=2 → ровно ×2)
+  - сравнение выбранных S при разных лимитах/длинах
 
-Добавлять `tests/test_phase_balance.py` **только если** существует `calc_core/phase_balance.py`
-и он реально пишет в `panel_phase_calc`. Если файла нет — не добавлять тест.
+### 2) Smoke test `tests/test_voltage_drop_smoke.py` (или расширить существующий smoke) (обязательно)
+
+Минимальный сквозной сценарий:
+
+- создать временную SQLite
+- применить миграции `0001_init.sql` + `0002_circuits.sql`
+- применить seed `seed_cable_sections.sql`
+- вставить:
+  - `panels` (обязательно `u_ph_v`, и лимиты ΔU пусть будут дефолтные или явные)
+  - `circuits` (как минимум 1 строка)
+- вызвать CLI:
+  - `python tools/run_calc.py --db <tmp> --calc-du --panel-id <id>`
+- проверить:
+  - строка в `circuit_calc` создана
+  - `du_limit_pct` записан и соответствует `effective_du_limit`
+  - `s_mm2_selected` заполнен
 
 ## Git workflow
 
-1) `git checkout feature/qa-tests`
+1) `git checkout -b feature/qa-tests` (или `git checkout feature/qa-tests`)
 2) Правки только в `tests/*`
 3) `git add tests`
-4) `git commit -m "test: align Kr and RTM smoke tests to minimal seed and schema"`
+4) `git commit -m "test: add voltage drop contract tests (MVP-0.2)"`
 
 ## Проверка
 
-- Запусти `python3 -m pytest -q` в ветке и добейся зелёного (после того, как db-layer и calc-core изменения смержены/подтянуты, если нужно).
+- `pytest -q`
 

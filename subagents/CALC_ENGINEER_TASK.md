@@ -1,95 +1,117 @@
-# CALC_ENGINEER TASK — feature/calc-core
+# CALC_ENGINEER TASK — feature/calc-core (MVP-0.2 Voltage Drop / Section selection)
 
 ROLE: CALC_ENGINEER  
 BRANCH: `feature/calc-core` (создать изменения и коммиты только здесь)  
 SCOPE (разрешено менять): `calc_core/*` и `tools/*`  
 SCOPE (запрещено менять): `db/*`, `tests/*`, `docs/*`, `cad_adapter/*`
 
-## Контекст (baseline)
+## Контекст
 
-Сейчас есть несогласованность: `calc_core/rtm_f636.py` и `tools/run_calc.py` обращаются к таблицам
-`rtm_input_rows / calc_runs / rtm_calc_rows`, которых **нет** в актуальной схеме.
+MVP-0.2 добавляет расчёт падения напряжения ΔU и подбор **минимального** сечения по ΔU
+по ГОСТ Р 50571.5.52-2011, Приложение G (справочное).
 
-Актуальная схема (см. `db/migrations/0001_init.sql`):
+Жёсткие константы (НЕ выдумывать):
+- `rho_Cu = 0.0225` Ом·мм²/м (уже включает 1.25×)
+- `rho_Al = 0.036` Ом·мм²/м (уже включает 1.25×)
+- `X = 0.08` мОм/м = `0.00008` Ом/м
 
-- `panels(id, name, system_type('3PH'|'1PH'), u_ll_v, u_ph_v)`
-- `rtm_rows(id, panel_id, name, n, pn_kw, ki, cos_phi, tg_phi, phases, phase_mode, phase_fixed, ...)`
-- `rtm_row_calc(row_id PK/FK -> rtm_rows.id, pn_total, ki_pn, ki_pn_tg, n_pn2)`
-- `rtm_panel_calc(panel_id PK/FK -> panels.id, sum_pn, sum_ki_pn, sum_ki_pn_tg, sum_np2, ne, kr, pp_kw, qp_kvar, sp_kva, ip_a, updated_at)`
-- `panel_phase_calc(panel_id PK/FK -> panels.id, ...)` (пока может оставаться пустой, если phase_balance ещё не реализован)
-- `kr_table(ne, ki, kr, source)` (Kr lookup по контракту)
+Принципы:
+- ΔU% считать относительно `U0` = `panels.u_ph_v` (фаза‑нейтраль).
+- DB=истина: ввод в `circuits`, результаты в `circuit_calc`.
+- Никаких изменений в `db/*` (миграции делает DB_ENGINEER).
 
 ## Цель
 
-Привести `calc_core` и `tools/run_calc.py` к **актуальной SQLite схеме**, не меняя контрактов:
+1) Реализовать `calc_core/voltage_drop.py`:
+   - вычисление ΔU (В) и ΔU% по формуле Прил. G (с учётом `ρ`, `X`, `cosφ/sinφ`, `b`, длины, I, S)
+   - подбор минимального `S` из `cable_sections` так, чтобы `du_pct <= du_limit_pct`
+   - запись результата в `circuit_calc` (upsert по `circuit_id`)
 
-- **Kr контракт** НЕ менять: clamp Ki, ne_tab вверх, линейная интерполяция по Ki в строке `ne_tab`, таблица в SQLite.
-- **PhaseBalance контракт** НЕ менять (если файла/логики нет — не придумывать; только оставить совместимость по таблицам).
+2) Расширить `tools/run_calc.py`:
+   - опция `--calc-du --panel-id <id>`: считать ΔU по **всем** `circuits` данного `panel_id`
 
-## Что нужно сделать
+## Контракт расчёта (как реализовать)
 
-### 1) Переписать расчёт RTM на таблицы `rtm_rows/rtm_row_calc/rtm_panel_calc`
+### 1) `b` (1/2)
 
-В `calc_core/rtm_f636.py`:
+- Если `circuits.phases == 3` и `circuits.unbalance_mode == 'NORMAL'` → `b = 1`
+- Иначе → `b = 2`
 
-- читать входные строки из `rtm_rows` по `panel_id`
-- записывать:
-  - per-row расчёт в `rtm_row_calc` (upsert по `row_id`)
-  - итоги по щиту в `rtm_panel_calc` (upsert по `panel_id`, обновляя `updated_at`)
+То есть:
+- 1PH всегда `b=2`
+- 3PH FULL_UNBALANCED считать как 1PH (`b=2`)
 
-Минимальный набор вычислений для MVP (консервативно):
+### 2) `sinφ` из `cosφ`
 
-- `pn_total` = `n * pn_kw`
-- `ki_pn` = `ki * pn_total`
-- `ki_pn_tg` = `ki_pn * tg_phi`, где:
-  - если `tg_phi` задан, использовать его
-  - иначе если `cos_phi` задан, вычислить `tg_phi = tan(acos(cos_phi))`
-  - иначе `tg_phi = 0` (консервативно)
-- `n_pn2` = `n * pn_kw * pn_kw`
+Сделать `sin_phi(cos_phi)`:
+- \( \sin\varphi = \sqrt{\max(0, 1 - \cos^2\varphi)} \)
+- `cos_phi` должен быть в [0..1] (если вне — raise, не “чинить”)
 
-Итоги:
+### 3) Эффективный лимит при длине >100 м
 
-- `sum_pn` = Σ(pn_total)
-- `sum_ki_pn` = Σ(ki_pn)
-- `sum_ki_pn_tg` = Σ(ki_pn_tg)
-- `sum_np2` = Σ(n_pn2)
-- `ne` = (sum_pn ** 2) / sum_np2  (если sum_np2 > 0, иначе ошибка)
-- `ki_group` = sum_ki_pn / sum_pn (если sum_pn > 0, иначе ошибка)
-- `kr` = `get_kr(db_path, ne, ki_group)` по контракту Kr
-- `pp_kw` = `kr * sum_ki_pn`
-- `qp_kvar` = `kr * sum_ki_pn_tg`
-- `sp_kva` = sqrt(pp_kw**2 + qp_kvar**2)
-- `ip_a`:
-  - для `panels.system_type='3PH'`: \( I = S*1000 / (\sqrt{3} * U_{LL}) \) (требует `u_ll_v`)
-  - для `panels.system_type='1PH'`: \( I = S*1000 / U_{PH} \) (требует `u_ph_v`)
+Функция `effective_du_limit(base_limit_pct, length_m)`:
+- если `length_m <= 100` → `base_limit_pct`
+- иначе:
+  - `add_pct = min(0.005 * (length_m - 100), 0.5)`
+  - `effective = base_limit_pct + add_pct`
 
-Доп. правило (если применимо в RTM_F636 контракте проекта): `pp_kw >= pn_max`:
-- `pn_max` = max(pn_total) по строкам
-- если `pp_kw < pn_max`, то `pp_kw = pn_max` (и пересчитать `sp_kva`/`ip_a` по обновлённому `pp_kw`, `qp_kvar` оставить как есть)
+### 4) Формула ΔU (В) по Прил. G (MVP)
 
-### 2) Обновить `tools/run_calc.py`
+Функция `calc_du_v(b, rho, x, L, S, cos_phi, sin_phi, I)`:
 
-- Убрать обращения к несуществующим таблицам.
-- Создавать демо-данные в `panels` и `rtm_rows` (если в щите нет строк).
-  - При вставке `panels` обязательно заполнить `system_type` и соответствующие напряжения:
-    - 3PH: `system_type='3PH'`, `u_ll_v=400`, `u_ph_v=230`
-  - Для `rtm_rows` выбрать демо‑строки с `phase_mode='NONE'` (пока фазировку не считаем) и `phases=3`.
+- \( \Delta U = b \cdot \left( \rho \cdot \frac{L}{S}\cdot \cos\varphi + x \cdot L \cdot \sin\varphi \right)\cdot I \)
 
-### 3) Совместимость с `cad_adapter`
+Где:
+- `rho` = `RHO_CU` или `RHO_AL` (Ом·мм²/м)
+- `x` = `X_PER_M` (Ом/м)
+- `L` = `length_m` (м)
+- `S` = `s_mm2` (мм²)
+- `I` = `i_calc_a` (А)
 
-Не менять `cad_adapter`, но обеспечить, чтобы после расчёта существовала строка в `rtm_panel_calc` для `panel_id`
-(иначе cad_adapter payload будет `null`).
+### 5) ΔU% относительно U0
+
+- `U0` брать из `panels.u_ph_v`
+- `du_pct = 100 * du_v / U0`
+
+### 6) Выбор лимита ΔU на панели
+
+База:
+- если `circuits.load_kind == 'LIGHTING'` → `panels.du_limit_lighting_pct`
+- иначе → `panels.du_limit_other_pct`
+
+Далее:
+- `du_limit_pct = effective_du_limit(base, length_m)`
+
+### 7) Подбор минимального сечения
+
+Функция `select_min_section_by_du(conn, circuit_id)` или аналог:
+
+- Получить список `S` из `cable_sections` (по возрастанию).
+- Для каждого `S`:
+  - посчитать `du_pct`
+  - выбрать **первое** `S`, где `du_pct <= du_limit_pct`
+- Если ни одно не прошло → выбрать **максимальное** `S` и записать факт (например `method` содержит `NO_SECTION_MEETS_LIMIT`).
+
+### 8) Запись результата
+
+`calc_circuit_du(conn, circuit_id) -> None`:
+- читает `circuits` + `panels` по `panel_id`
+- пишет `circuit_calc` (upsert), заполняя:
+  - `i_calc_a` (как во входе)
+  - `du_v`, `du_pct`, `du_limit_pct`, `s_mm2_selected`
+  - `method` (например `GOST_R_50571_5_52_2011_APP_G`)
+  - `updated_at` (ISO8601 UTC)
 
 ## Acceptance criteria
 
-- Код в `feature/calc-core` не обращается к `rtm_input_rows/calc_runs/rtm_calc_rows`.
-- `tools/run_calc.py` создаёт БД (через миграции) и считает один щит, записывая `rtm_row_calc` и `rtm_panel_calc`.
-- `python3 -m pytest -q` **пока может падать** (QA починит тесты), но падения не должны быть из‑за SQL таблиц “не существует”.
+- `calc_core/voltage_drop.py` покрывает случаи 1PH/3PH, NORMAL/FULL_UNBALANCED (через b).
+- `tools/run_calc.py --calc-du --panel-id X` создаёт/обновляет `circuit_calc` для всех цепей панели.
+- Не изменять `db/*` и существующий RTM расчёт (это другой scope).
 
 ## Git workflow
 
-1) `git checkout feature/calc-core`
+1) `git checkout -b feature/calc-core` (или `git checkout feature/calc-core`)
 2) Правки только в `calc_core/*` и `tools/*`
 3) `git add calc_core tools`
-4) `git commit -m "calc: align RTM calc to rtm_rows schema"`
+4) `git commit -m "calc: add voltage drop and section selection (MVP-0.2)"`
 
