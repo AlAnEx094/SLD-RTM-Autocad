@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-from typing import Any
+from typing import Any, Callable
 
 import streamlit as st
 
 from app.db import StatusInfo
+
+_STATUS_KEYS = {"OK": "status.ok", "STALE": "status.stale", "NO_CALC": "status.no_calc", "UNKNOWN": "status.unknown"}
 
 
 def _status_style(status: str) -> tuple[str, str]:
@@ -38,16 +40,24 @@ def _details_text(info: StatusInfo) -> str:
     return "; ".join(parts)
 
 
-def status_chip(label: str, info: StatusInfo, *, show_details: bool = True) -> None:
+def status_chip(
+    label: str,
+    info: StatusInfo,
+    *,
+    show_details: bool = True,
+    t: Callable[..., str] | None = None,
+) -> None:
     """
     Compact status chip with optional details popover.
     Matches SPEC wording for codes: OK/STALE/NO_CALC/UNKNOWN.
+    When t is provided, status is localized.
     """
     if info.status == "HIDDEN":
         return
 
     bg, fg = _status_style(info.status)
     title = _details_text(info).replace('"', "'")
+    status_label = t(_STATUS_KEYS.get(info.status, "status.unknown")) if t else info.status
 
     cols = st.columns([0, 1], vertical_alignment="center")
     with cols[0]:
@@ -63,12 +73,13 @@ def status_chip(label: str, info: StatusInfo, *, show_details: bool = True) -> N
               font-size:0.85rem;
               line-height:1.4;
               white-space:nowrap;
-            ">{label}: {info.status}</span>
+            ">{label}: {status_label}</span>
             """,
             unsafe_allow_html=True,
         )
     with cols[1]:
         if show_details:
-            with st.popover("Details"):
+            details_label = t("tooltips.details") if t else "Details"
+            with st.popover(details_label):
                 st.json(asdict(info))  # stable shape for debugging
 

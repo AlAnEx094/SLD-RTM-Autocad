@@ -4,28 +4,29 @@ import uuid
 import streamlit as st
 
 from app import db
+from app.i18n import t
 from app.validation import validate_panel
 
 
 def render_create_panel(conn, state: dict) -> str | None:
-    st.subheader("Create panel")
+    st.subheader(t("panels.create_header"))
     if state.get("mode_effective") != "EDIT":
-        st.info("Switch to EDIT mode to create panels.")
+        st.info(t("panels.switch_edit_create"))
         return None
 
     with st.form("create_panel_form", clear_on_submit=True):
-        name = st.text_input("Name")
-        system_type = st.selectbox("System type", ("3PH", "1PH"))
-        u_ll_v = st.number_input("U LL (V)", min_value=0.0, value=400.0)
-        u_ph_v = st.number_input("U PH (V)", min_value=0.0, value=230.0)
+        name = st.text_input(t("panels.name"))
+        system_type = st.selectbox(t("panels.system_type"), ("3PH", "1PH"))
+        u_ll_v = st.number_input(t("panels.u_ll"), min_value=0.0, value=400.0)
+        u_ph_v = st.number_input(t("panels.u_ph"), min_value=0.0, value=230.0)
         du_limit_lighting_pct = st.number_input(
-            "DU limit lighting (%)", min_value=0.0, value=3.0
+            t("panels.du_limit_lighting"), min_value=0.0, value=3.0
         )
         du_limit_other_pct = st.number_input(
-            "DU limit other (%)", min_value=0.0, value=5.0
+            t("panels.du_limit_other"), min_value=0.0, value=5.0
         )
-        installation_type = st.text_input("Installation type", value="A")
-        submitted = st.form_submit_button("Create panel")
+        installation_type = st.text_input(t("panels.installation_type"), value="A")
+        submitted = st.form_submit_button(t("panels.create_btn"))
 
     if not submitted:
         return None
@@ -40,9 +41,9 @@ def render_create_panel(conn, state: dict) -> str | None:
         "du_limit_other_pct": du_limit_other_pct,
         "installation_type": installation_type.strip() or None,
     }
-    errors = validate_panel(data)
+    errors = validate_panel(data, translator=t)
     if errors:
-        st.error("Panel not created: " + "; ".join(errors))
+        st.error(t("panels.not_created", errors="; ".join(errors)))
         return None
 
     try:
@@ -52,21 +53,21 @@ def render_create_panel(conn, state: dict) -> str | None:
             db.touch_ui_input_meta(conn, panel_id, db.SUBSYSTEM_PHASE, note="panel_create")
             db.touch_ui_input_meta(conn, panel_id, db.SUBSYSTEM_DU, note="panel_create")
         db.update_state_after_write(state, state["db_path"], conn)
-        st.success(f"Panel created: {panel_id}")
+        st.success(t("panels.created", id=panel_id))
         return panel_id
     except Exception as exc:  # pragma: no cover - UI error path
-        st.error(f"Failed to create panel: {exc}")
+        st.error(t("errors.failed_create_panel", exc=exc))
         return None
 
 
 def render(conn, state: dict) -> None:
-    st.header("Panels")
+    st.header(t("panels.header"))
 
-    panels = db.list_panels(conn)
-    if panels:
-        st.dataframe(panels, use_container_width=True)
+    panels_list = db.list_panels(conn)
+    if panels_list:
+        st.dataframe(panels_list, use_container_width=True)
     else:
-        st.info("No panels found.")
+        st.info(t("panels.no_panels"))
 
     created = render_create_panel(conn, state)
     if created:
@@ -74,53 +75,53 @@ def render(conn, state: dict) -> None:
 
     panel_id = state.get("selected_panel_id")
     if not panel_id:
-        st.info("Select a panel to edit.")
+        st.info(t("panels.select_to_edit"))
         return
 
     panel = db.get_panel(conn, panel_id)
     if not panel:
-        st.warning("Selected panel not found.")
+        st.warning(t("panels.selected_not_found"))
         return
 
-    st.subheader("Panel settings")
-    st.text_input("Panel ID", value=panel["id"], disabled=True)
+    st.subheader(t("panels.settings_header"))
+    st.text_input(t("panels.panel_id"), value=panel["id"], disabled=True)
 
     disabled = state.get("mode_effective") != "EDIT"
     with st.form("edit_panel_form"):
-        name = st.text_input("Name", value=panel["name"], disabled=disabled)
+        name = st.text_input(t("panels.name"), value=panel["name"], disabled=disabled)
         system_type = st.selectbox(
-            "System type", ("3PH", "1PH"), index=0 if panel["system_type"] == "3PH" else 1, disabled=disabled
+            t("panels.system_type"), ("3PH", "1PH"), index=0 if panel["system_type"] == "3PH" else 1, disabled=disabled
         )
         u_ll_v = st.number_input(
-            "U LL (V)",
+            t("panels.u_ll"),
             min_value=0.0,
             value=float(panel["u_ll_v"]) if panel["u_ll_v"] is not None else 0.0,
             disabled=disabled,
         )
         u_ph_v = st.number_input(
-            "U PH (V)",
+            t("panels.u_ph"),
             min_value=0.0,
             value=float(panel["u_ph_v"]) if panel["u_ph_v"] is not None else 0.0,
             disabled=disabled,
         )
         du_limit_lighting_pct = st.number_input(
-            "DU limit lighting (%)",
+            t("panels.du_limit_lighting"),
             min_value=0.0,
             value=float(panel["du_limit_lighting_pct"]),
             disabled=disabled,
         )
         du_limit_other_pct = st.number_input(
-            "DU limit other (%)",
+            t("panels.du_limit_other"),
             min_value=0.0,
             value=float(panel["du_limit_other_pct"]),
             disabled=disabled,
         )
         installation_type = st.text_input(
-            "Installation type",
+            t("panels.installation_type"),
             value=panel.get("installation_type") or "",
             disabled=disabled,
         )
-        submitted = st.form_submit_button("Save panel", disabled=disabled)
+        submitted = st.form_submit_button(t("panels.save_btn"), disabled=disabled)
 
     if submitted:
         data = {
@@ -132,9 +133,9 @@ def render(conn, state: dict) -> None:
             "du_limit_other_pct": du_limit_other_pct,
             "installation_type": installation_type.strip() or None,
         }
-        errors = validate_panel(data)
+        errors = validate_panel(data, translator=t)
         if errors:
-            st.error("Panel not saved: " + "; ".join(errors))
+            st.error(t("panels.not_saved", errors="; ".join(errors)))
         else:
             try:
                 with db.tx(conn):
@@ -149,26 +150,26 @@ def render(conn, state: dict) -> None:
                         conn, panel_id, db.SUBSYSTEM_DU, note="panel_edit"
                     )
                 db.update_state_after_write(state, state["db_path"], conn)
-                st.success("Panel updated.")
+                st.success(t("panels.updated"))
             except Exception as exc:  # pragma: no cover - UI error path
-                st.error(f"Failed to update panel: {exc}")
+                st.error(t("errors.failed_update_panel", exc=exc))
 
-    st.subheader("Delete panel (danger zone)")
+    st.subheader(t("panels.delete_header"))
     if state.get("mode_effective") != "EDIT":
-        st.info("Switch to EDIT mode to delete panels.")
+        st.info(t("panels.switch_edit_delete"))
         return
 
     deps = db.panel_dependents(conn, panel_id)
-    st.write("Dependent rows:")
+    st.write(t("panels.dependent_rows"))
     st.json(deps)
-    confirm = st.checkbox("I understand this will delete the panel and dependents.")
-    text = st.text_input("Type DELETE to confirm")
-    if st.button("Delete panel", disabled=not (confirm and text == "DELETE")):
+    confirm = st.checkbox(t("panels.delete_confirm"))
+    text = st.text_input(t("panels.type_delete"))
+    if st.button(t("panels.delete_btn"), disabled=not (confirm and text == "DELETE")):
         try:
             with db.tx(conn):
                 db.delete_panel(conn, panel_id)
             db.update_state_after_write(state, state["db_path"], conn)
             state["selected_panel_id"] = None
-            st.success("Panel deleted.")
+            st.success(t("panels.deleted"))
         except Exception as exc:  # pragma: no cover - UI error path
-            st.error(f"Failed to delete panel: {exc}")
+            st.error(t("errors.failed_delete_panel", exc=exc))

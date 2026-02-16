@@ -6,69 +6,64 @@ from datetime import datetime
 import streamlit as st
 
 from app import db
+from app.i18n import t
 
 
 def render(conn, state: dict) -> None:
-    st.header("DB Connect")
+    st.header(t("db_connect.header"))
 
     db_path = state.get("db_path")
-    st.write(f"Current DB path: `{db_path}`")
+    st.write(t("db_connect.current_path", path=db_path))
 
     if not db_path:
-        st.error("DB path is empty.")
+        st.error(t("errors.db_path_empty"))
         return
 
     if not Path(db_path).exists():
-        st.warning("DB file does not exist yet.")
-        st.info("Use EDIT mode to create the DB file and apply migrations.")
+        st.warning(t("db_connect.file_not_exists"))
+        st.info(t("db_connect.use_edit_mode"))
         if state.get("mode_effective") != "EDIT":
             return
 
-        st.subheader("Create DB + apply migrations")
-        confirm = st.checkbox("Create DB file and apply migrations (DDL changes)")
-        if st.button("Create DB", disabled=not confirm):
+        st.subheader(t("db_connect.create_header"))
+        confirm = st.checkbox(t("db_connect.create_confirm"))
+        if st.button(t("db_connect.create_btn"), disabled=not confirm):
             try:
                 from tools.run_calc import ensure_migrations
 
                 ensure_migrations(Path(db_path))
-                st.success("DB created and migrations applied.")
+                st.success(t("db_connect.created"))
                 db.update_state_after_write(state, db_path)
             except Exception as exc:  # pragma: no cover - UI error path
-                st.error(f"Failed to create DB/apply migrations: {exc}")
+                st.error(t("errors.failed_create_db", exc=exc))
         return
 
     schema = db.schema_status(conn)
     if schema["missing_tables"] or schema.get("missing_columns"):
-        st.error(
-            "DB schema is incompatible with MVP-UI v0.1. "
-            "This DB looks like a legacy schema; migrations may not fix it in-place."
-        )
+        st.error(t("db_connect.schema_legacy"))
         if schema["missing_tables"]:
-            st.write("Missing tables:")
+            st.write(t("db_connect.missing_tables"))
             st.code(", ".join(schema["missing_tables"]))
         if schema.get("missing_columns"):
-            st.write("Missing columns:")
-            for t, cols in schema["missing_columns"].items():
-                st.code(f"{t}: " + ", ".join(cols))
+            st.write(t("db_connect.missing_columns"))
+            for tbl, cols in schema["missing_columns"].items():
+                st.code(f"{tbl}: " + ", ".join(cols))
     else:
-        st.success("Schema looks complete.")
+        st.success(t("db_connect.schema_ok"))
 
     if schema["has_migrations"]:
         st.write(f"schema_migrations: {', '.join(schema['migrations'])}")
     else:
-        st.warning("schema_migrations table not found.")
+        st.warning(t("db_connect.no_migrations_table"))
 
     if state.get("mode_effective") != "EDIT":
-        st.info("Switch to EDIT mode to apply migrations or recreate DB.")
+        st.info(t("db_connect.switch_edit"))
         return
 
-    st.subheader("Recreate DB (safe)")
-    st.caption(
-        "Creates a fresh DB at the same path using current migrations. "
-        "The existing file will be backed up next to it."
-    )
-    confirm_recreate = st.checkbox("Backup existing DB and recreate (DESTRUCTIVE)")
-    if st.button("Recreate DB", disabled=not confirm_recreate):
+    st.subheader(t("db_connect.recreate_header"))
+    st.caption(t("db_connect.recreate_caption"))
+    confirm_recreate = st.checkbox(t("db_connect.recreate_confirm"))
+    if st.button(t("db_connect.recreate_btn"), disabled=not confirm_recreate):
         try:
             from tools.run_calc import (
                 ensure_migrations,
@@ -84,20 +79,20 @@ def render(conn, state: dict) -> None:
             ensure_migrations(p)
             seed_kr_table_if_empty(p)
             seed_cable_sections_if_empty(p)
-            st.success(f"DB recreated. Backup: {backup}")
+            st.success(t("db_connect.recreated", path=str(backup)))
             db.update_state_after_write(state, db_path)
             return
         except Exception as exc:  # pragma: no cover - UI error path
-            st.error(f"Failed to recreate DB: {exc}")
+            st.error(t("errors.failed_recreate_db", exc=exc))
 
-    st.subheader("Migrations")
-    confirm = st.checkbox("Apply migrations to DB (DDL changes)")
-    if st.button("Apply migrations", disabled=not confirm):
+    st.subheader(t("db_connect.migrations_header"))
+    confirm = st.checkbox(t("db_connect.migrations_confirm"))
+    if st.button(t("db_connect.apply_btn"), disabled=not confirm):
         try:
             from tools.run_calc import ensure_migrations
 
             ensure_migrations(Path(db_path))
-            st.success("Migrations applied.")
+            st.success(t("db_connect.migrations_applied"))
             db.update_state_after_write(state, db_path, conn)
         except Exception as exc:  # pragma: no cover - UI error path
-            st.error(f"Failed to apply migrations: {exc}")
+            st.error(t("errors.failed_migrations", exc=exc))

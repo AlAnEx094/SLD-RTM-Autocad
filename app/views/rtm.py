@@ -7,6 +7,7 @@ import pandas as pd
 import streamlit as st
 
 from app import db
+from app.i18n import t
 from app.ui_components import status_chip
 from app.validation import validate_panel_for_rtm, validate_rtm_rows
 
@@ -52,37 +53,37 @@ def _normalize_input_df(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def render(conn, state: dict) -> None:
-    st.header("Load Table (Unified)")
+    st.header(t("rtm.header"))
 
     panel_id = state.get("selected_panel_id")
     if not panel_id:
-        st.info("Select a panel to edit RTM rows.")
+        st.info(t("rtm.select_panel"))
         return
 
     panel = db.get_panel(conn, panel_id)
     if not panel:
-        st.warning("Selected panel not found.")
+        st.warning(t("panels.selected_not_found"))
         return
 
     # Panel header / quick settings
-    with st.expander("Panel header (quick settings)", expanded=True):
-        st.write(f"Panel: `{panel.get('name')}`  ID: `{panel_id}`")
+    with st.expander(t("rtm.panel_header"), expanded=True):
+        st.write(t("rtm.panel_info", name=panel.get("name") or "", id=panel_id))
         if state.get("mode_effective") == "EDIT":
             with st.form("load_table_panel_form"):
-                name = st.text_input("Name", value=str(panel.get("name") or ""))
+                name = st.text_input(t("panels.name"), value=str(panel.get("name") or ""))
                 system_type = st.selectbox(
-                    "System type", ("3PH", "1PH"),
+                    t("panels.system_type"), ("3PH", "1PH"),
                     index=0 if panel.get("system_type") == "3PH" else 1,
                 )
                 u_ll_v = st.number_input(
-                    "U LL (V)", min_value=0.0,
+                    t("panels.u_ll"), min_value=0.0,
                     value=float(panel["u_ll_v"]) if panel.get("u_ll_v") is not None else 0.0,
                 )
                 u_ph_v = st.number_input(
-                    "U PH (V)", min_value=0.0,
+                    t("panels.u_ph"), min_value=0.0,
                     value=float(panel["u_ph_v"]) if panel.get("u_ph_v") is not None else 0.0,
                 )
-                submitted = st.form_submit_button("Save panel header")
+                submitted = st.form_submit_button(t("rtm.save_header_btn"))
             if submitted:
                 data = {
                     "name": name.strip(),
@@ -97,9 +98,9 @@ def render(conn, state: dict) -> None:
                 # (RTM-specific voltage gating is handled separately.)
                 from app.validation import validate_panel
 
-                panel_errors = validate_panel(data)
+                panel_errors = validate_panel(data, translator=t)
                 if panel_errors:
-                    st.error("Panel header not saved: " + "; ".join(panel_errors))
+                    st.error(t("rtm.header_not_saved", errors="; ".join(panel_errors)))
                 else:
                     try:
                         with db.tx(conn):
@@ -108,12 +109,12 @@ def render(conn, state: dict) -> None:
                             db.touch_ui_input_meta(conn, panel_id, db.SUBSYSTEM_PHASE, note="panel_edit_load_table")
                             db.touch_ui_input_meta(conn, panel_id, db.SUBSYSTEM_DU, note="panel_edit_load_table")
                         db.update_state_after_write(state, state["db_path"], conn)
-                        st.success("Panel header updated.")
+                        st.success(t("rtm.header_updated"))
                         panel = db.get_panel(conn, panel_id) or panel
                     except Exception as exc:  # pragma: no cover
-                        st.error(f"Failed to update panel: {exc}")
+                        st.error(t("errors.failed_update_panel", exc=exc))
         else:
-            st.caption("Switch to EDIT mode to modify panel header.")
+            st.caption(t("rtm.switch_edit_header"))
 
     rtm_info = db.rtm_status(conn, panel_id, external_change=state.get("external_change", False))
     phase_info = db.phase_status(
@@ -122,9 +123,9 @@ def render(conn, state: dict) -> None:
         system_type=panel.get("system_type"),
         external_change=state.get("external_change", False),
     )
-    status_chip("RTM", rtm_info)
+    status_chip("RTM", rtm_info, t=t)
     if panel.get("system_type") == "1PH":
-        status_chip("PHASE", phase_info)
+        status_chip("PHASE", phase_info, t=t)
 
     rows = db.list_rtm_rows_with_calc(conn, panel_id)
     df_full = pd.DataFrame(rows)
@@ -140,14 +141,14 @@ def render(conn, state: dict) -> None:
                 df_full[col] = df_full[col].replace({"NONE": ""})
 
     with st.container():
-        tabs = st.tabs(["Edit (all rows)", "Filtered view"])
+        tabs = st.tabs([t("rtm.tab_edit"), t("rtm.tab_filtered")])
         with tabs[0]:
-            input_validation = validate_rtm_rows(df_full[INPUT_COLUMNS].copy())
+            input_validation = validate_rtm_rows(df_full[INPUT_COLUMNS].copy(), translator=t)
             df_full["row_status"] = df_full.index.map(
                 lambda i: input_validation.row_status.get(i, "OK")
             )
 
-            st.caption("Edit RTM rows. Calc columns are read-only.")
+            st.caption(t("rtm.edit_caption"))
             edited_df = st.data_editor(
                 df_full[INPUT_COLUMNS + CALC_COLUMNS + ["row_status"]],
                 num_rows="dynamic",
@@ -157,11 +158,11 @@ def render(conn, state: dict) -> None:
             )
 
             input_df = edited_df[INPUT_COLUMNS].copy()
-            validation = validate_rtm_rows(input_df)
+            validation = validate_rtm_rows(input_df, translator=t)
             if validation.warnings:
-                st.warning("Warnings:\n" + "\n".join(validation.warnings))
+                st.warning(t("rtm.warnings", text="\n".join(validation.warnings)))
             if validation.errors:
-                st.error("Validation errors:\n" + "\n".join(validation.errors))
+                st.error(t("rtm.validation_errors", text="\n".join(validation.errors)))
 
             # Dirty detection vs DB snapshot (strict gating for calc/export).
             original_norm = _normalize_input_df(df_full[INPUT_COLUMNS].copy())
@@ -169,10 +170,10 @@ def render(conn, state: dict) -> None:
             dirty = not original_norm.equals(edited_norm)
             state["rtm_dirty"] = dirty
             if dirty:
-                st.warning("Unsaved changes detected. Save before running calculations/exports.")
+                st.warning(t("rtm.unsaved_changes"))
 
             can_save = (not validation.has_errors) and state.get("mode_effective") == "EDIT"
-            if st.button("Save input changes", disabled=not can_save):
+            if st.button(t("rtm.save_changes_btn"), disabled=not can_save):
                 try:
                     rows_to_save = []
                     for _, row in input_df.iterrows():
@@ -215,15 +216,15 @@ def render(conn, state: dict) -> None:
                         )
                     db.update_state_after_write(state, state["db_path"], conn)
                     state["rtm_dirty"] = False
-                    st.success("RTM rows saved.")
+                    st.success(t("rtm.rows_saved"))
                 except Exception as exc:  # pragma: no cover - UI error path
-                    st.error(f"Failed to save RTM rows: {exc}")
+                    st.error(t("errors.failed_save_rtm", exc=exc))
 
         with tabs[1]:
-            search = st.text_input("Search by name (filtered view)")
-            phase_filter = st.multiselect("Phases", [1, 3], default=[1, 3])
+            search = st.text_input(t("rtm.search"))
+            phase_filter = st.multiselect(t("rtm.phases"), [1, 3], default=[1, 3])
             mode_filter = st.multiselect(
-                "Phase mode", ["AUTO", "FIXED", "NONE"], default=["AUTO", "FIXED", "NONE"]
+                t("rtm.phase_mode"), ["AUTO", "FIXED", "NONE"], default=["AUTO", "FIXED", "NONE"]
             )
             view_df = df_full.copy()
             if search:
@@ -236,9 +237,9 @@ def render(conn, state: dict) -> None:
                 view_df = view_df[view_df["phase_mode"].isin(mode_filter)]
             st.dataframe(view_df, use_container_width=True)
 
-    st.subheader("Input totals (from input values)")
+    st.subheader(t("rtm.input_totals"))
     if df_full.empty:
-        st.info("No input rows.")
+        st.info(t("rtm.no_input_rows"))
     else:
         pn_total = (df_full["n"].astype(float) * df_full["pn_kw"].astype(float)).sum()
         ki_pn = (
@@ -247,28 +248,28 @@ def render(conn, state: dict) -> None:
             * df_full["pn_kw"].astype(float)
         ).sum()
         cols = st.columns(2)
-        cols[0].metric("Sum pn_total", f"{pn_total:.3f}")
-        cols[1].metric("Sum ki_pn", f"{ki_pn:.3f}")
+        cols[0].metric(t("rtm.sum_pn_total"), f"{pn_total:.3f}")
+        cols[1].metric(t("rtm.sum_ki_pn"), f"{ki_pn:.3f}")
 
-    st.subheader("RTM panel calc (read-only)")
+    st.subheader(t("rtm.panel_calc_header"))
     panel_calc = db.get_rtm_panel_calc(conn, panel_id)
     if panel_calc:
         st.dataframe(panel_calc, use_container_width=True)
     else:
-        st.info("rtm_panel_calc is empty.")
+        st.info(t("rtm.panel_calc_empty"))
 
     if panel.get("system_type") == "1PH":
-        st.subheader("Phase balance (read-only)")
+        st.subheader(t("rtm.phase_balance_header"))
         phase_calc = db.get_panel_phase_calc(conn, panel_id)
         if phase_calc:
             st.dataframe(phase_calc, use_container_width=True)
         else:
-            st.info("panel_phase_calc is empty.")
+            st.info(t("rtm.phase_calc_empty"))
 
-    st.subheader("Recalculate RTM")
-    panel_rtm_errors = validate_panel_for_rtm(panel)
+    st.subheader(t("rtm.recalc_header"))
+    panel_rtm_errors = validate_panel_for_rtm(panel, translator=t)
     if panel_rtm_errors:
-        st.error("Panel RTM validation: " + "; ".join(panel_rtm_errors))
+        st.error(t("rtm.panel_validation", errors="; ".join(panel_rtm_errors)))
 
     can_recalc = (
         state.get("mode_effective") == "EDIT"
@@ -278,7 +279,7 @@ def render(conn, state: dict) -> None:
         and not panel_rtm_errors
     )
 
-    if st.button("Recalculate RTM", disabled=not can_recalc):
+    if st.button(t("rtm.recalc_btn"), disabled=not can_recalc):
         try:
             from calc_core import run_panel_calc
 
@@ -297,23 +298,23 @@ def render(conn, state: dict) -> None:
                     finally:
                         ph_conn.close()
                 except Exception as exc:
-                    st.warning(f"Phase balance skipped: {exc}")
+                    st.warning(t("errors.phase_balance_skipped", exc=exc))
 
             db.update_state_after_write(state, state["db_path"])
-            st.success("RTM recalculated.")
+            st.success(t("rtm.recalculated"))
         except Exception as exc:  # pragma: no cover - UI error path
-            st.error(f"RTM calculation failed: {exc}")
+            st.error(t("errors.rtm_calc_failed", exc=exc))
 
-    st.subheader("Delete RTM row (danger zone)")
+    st.subheader(t("rtm.delete_header"))
     if state.get("mode_effective") != "EDIT":
-        st.info("Switch to EDIT mode to delete rows.")
+        st.info(t("rtm.switch_edit_delete"))
         return
     if rows:
         options = {f"{r['name']} ({r['id']})": r["id"] for r in rows}
-        choice = st.selectbox("Row to delete", list(options.keys()))
-        confirm = st.checkbox("I understand this will delete the row.")
-        text = st.text_input("Type DELETE to confirm", key="rtm_delete_text")
-        if st.button("Delete row", disabled=not (confirm and text == "DELETE")):
+        choice = st.selectbox(t("rtm.row_to_delete"), list(options.keys()))
+        confirm = st.checkbox(t("rtm.delete_row_confirm"))
+        text = st.text_input(t("panels.type_delete"), key="rtm_delete_text")
+        if st.button(t("rtm.delete_row_btn"), disabled=not (confirm and text == "DELETE")):
             try:
                 with db.tx(conn):
                     db.delete_rtm_rows(conn, [options[choice]])
@@ -324,8 +325,8 @@ def render(conn, state: dict) -> None:
                         conn, panel_id, db.SUBSYSTEM_PHASE, note="rtm_row_delete"
                     )
                 db.update_state_after_write(state, state["db_path"], conn)
-                st.success("Row deleted.")
+                st.success(t("rtm.row_deleted"))
             except Exception as exc:  # pragma: no cover - UI error path
-                st.error(f"Failed to delete row: {exc}")
+                st.error(t("errors.failed_delete_row", exc=exc))
     else:
-        st.info("No RTM rows to delete.")
+        st.info(t("rtm.no_rows_to_delete"))

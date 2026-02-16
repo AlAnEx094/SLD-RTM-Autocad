@@ -6,31 +6,30 @@ import sqlite3
 import streamlit as st
 
 from app import db
+from app.i18n import t
 from app.ui_components import status_chip
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
 def render(conn, state: dict) -> None:
-    st.header("Calculate")
+    st.header(t("calculate.header"))
 
     panel_id = state.get("selected_panel_id")
     if not panel_id:
-        st.info("Select a panel to run calculations.")
+        st.info(t("calculate.select_panel"))
         return
 
     panel = db.get_panel(conn, panel_id)
     if not panel:
-        st.warning("Selected panel not found.")
+        st.warning(t("panels.selected_not_found"))
         return
 
     if state.get("external_change"):
-        st.warning(
-            "DB was modified outside UI. Status is UNKNOWN; recalculation recommended."
-        )
+        st.warning(t("errors.db_modified_outside"))
 
     rtm_info = db.rtm_status(conn, panel_id, external_change=state.get("external_change", False))
-    status_chip("RTM", rtm_info)
+    status_chip("RTM", rtm_info, t=t)
 
     if panel.get("system_type") == "1PH":
         phase_info = db.phase_status(
@@ -39,26 +38,26 @@ def render(conn, state: dict) -> None:
             system_type=panel.get("system_type"),
             external_change=state.get("external_change", False),
         )
-        status_chip("PHASE", phase_info)
+        status_chip("PHASE", phase_info, t=t)
 
     du_info = db.du_status(conn, panel_id, external_change=state.get("external_change", False))
-    status_chip("DU", du_info)
+    status_chip("DU", du_info, t=t)
 
-    sections_mode = st.radio("Sections mode", ["NORMAL", "RESERVE"], horizontal=True)
+    sections_mode = st.radio(t("calculate.sections_mode"), ["NORMAL", "RESERVE"], horizontal=True)
     sections_info = db.sections_status(
         conn,
         panel_id,
         mode=sections_mode,
         external_change=state.get("external_change", False),
     )
-    status_chip(f"SECTIONS ({sections_mode})", sections_info)
+    status_chip(f"SECTIONS ({sections_mode})", sections_info, t=t)
 
     if state.get("mode_effective") != "EDIT":
-        st.info("Switch to EDIT mode to run calculations.")
+        st.info(t("calculate.switch_edit"))
         return
 
-    st.subheader("Run RTM")
-    if st.button("Recalculate RTM"):
+    st.subheader(t("calculate.run_rtm"))
+    if st.button(t("calculate.recalc_rtm_btn")):
         try:
             from calc_core import run_panel_calc
 
@@ -77,21 +76,21 @@ def render(conn, state: dict) -> None:
                     finally:
                         ph_conn.close()
                 except Exception as exc:
-                    st.warning(f"Phase balance skipped: {exc}")
+                    st.warning(t("errors.phase_balance_skipped", exc=exc))
 
             db.update_state_after_write(state, state["db_path"])
-            st.success("RTM recalculated.")
+            st.success(t("rtm.recalculated"))
         except Exception as exc:  # pragma: no cover - UI error path
-            st.error(f"RTM calculation failed: {exc}")
+            st.error(t("errors.rtm_calc_failed", exc=exc))
 
-    st.subheader("Run DU (voltage drop)")
+    st.subheader(t("calculate.run_du"))
     u_ph_v = panel.get("u_ph_v")
     if u_ph_v is None or float(u_ph_v) <= 0:
-        st.error("Panel u_ph_v is missing or invalid. DU calculation is blocked.")
+        st.error(t("errors.du_blocked"))
     cable_count = db.count_table(conn, "cable_sections")
     if cable_count == 0:
-        st.warning("cable_sections is empty. Seed required for DU.")
-        if st.button("Seed cable sections"):
+        st.warning(t("calculate.cable_empty"))
+        if st.button(t("calculate.seed_cable_btn")):
             try:
                 seed_path = ROOT / "db" / "seed_cable_sections.sql"
                 with db.tx(conn):
@@ -100,11 +99,11 @@ def render(conn, state: dict) -> None:
                         conn, "*", db.SUBSYSTEM_DU, note="seed_cable_sections"
                     )
                 db.update_state_after_write(state, state["db_path"], conn)
-                st.success("Cable sections seeded.")
+                st.success(t("calculate.cable_seeded"))
             except Exception as exc:  # pragma: no cover - UI error path
-                st.error(f"Failed to seed cable sections: {exc}")
+                st.error(t("errors.failed_seed_cable", exc=exc))
 
-    if st.button("Recalculate DU", disabled=(u_ph_v is None or float(u_ph_v) <= 0)):
+    if st.button(t("calculate.recalc_du_btn"), disabled=(u_ph_v is None or float(u_ph_v) <= 0)):
         try:
             from calc_core.voltage_drop import calc_panel_du
 
@@ -116,12 +115,12 @@ def render(conn, state: dict) -> None:
             finally:
                 du_conn.close()
             db.update_state_after_write(state, state["db_path"])
-            st.success(f"DU recalculated for {count} circuits.")
+            st.success(t("calculate.du_recalculated", count=count))
         except Exception as exc:  # pragma: no cover - UI error path
-            st.error(f"DU calculation failed: {exc}")
+            st.error(t("errors.du_calc_failed", exc=exc))
 
-    st.subheader("Run Sections")
-    if st.button(f"Aggregate sections ({sections_mode})"):
+    st.subheader(t("calculate.run_sections"))
+    if st.button(t("calculate.aggregate_btn", mode=sections_mode)):
         try:
             from calc_core.section_aggregation import calc_section_loads
 
@@ -134,6 +133,6 @@ def render(conn, state: dict) -> None:
             finally:
                 sec_conn.close()
             db.update_state_after_write(state, state["db_path"])
-            st.success(f"Sections aggregated: {count}")
+            st.success(t("calculate.sections_aggregated", count=count))
         except Exception as exc:  # pragma: no cover - UI error path
-            st.error(f"Sections aggregation failed: {exc}")
+            st.error(t("errors.sections_failed", exc=exc))
