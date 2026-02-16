@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import sqlite3
 
+import pandas as pd
 import streamlit as st
 
 from app import db
@@ -57,6 +58,9 @@ def render(conn, state: dict) -> None:
     )
     sections_mode_label = t("mode.normal") if sections_mode == "NORMAL" else t("mode.emergency")
     status_chip(t("chips.sections_with_mode", mode=sections_mode_label), sections_info, t=t)
+
+    if panel.get("system_type") == "1PH":
+        _render_phase_balance_section(conn, state, panel_id, panel)
 
     if state.get("mode_effective") != "EDIT":
         st.info(t("calculate.switch_edit"))
@@ -142,3 +146,97 @@ def render(conn, state: dict) -> None:
             st.success(t("calculate.sections_aggregated", count=count))
         except Exception as exc:  # pragma: no cover - UI error path
             st.error(t("errors.sections_failed", exc=exc))
+
+
+def _render_phase_balance_section(conn, state: dict, panel_id: str, panel: dict) -> None:
+    """Phase balance section: Run button, totals, circuits table (1PH only)."""
+    st.subheader(t("phase_balance.section"))
+
+    is_edit = state.get("mode_effective") == "EDIT"
+
+    if is_edit and st.button(t("phase_balance.run_btn")):
+        try:
+            from calc_core.phase_balance import calc_phase_balance
+
+            pb_conn = sqlite3.connect(state["db_path"])
+            try:
+                pb_conn.row_factory = sqlite3.Row
+                pb_conn.execute("PRAGMA foreign_keys = ON;")
+                count = calc_phase_balance(pb_conn, panel_id, mode="NORMAL")
+                pb_conn.commit()
+            finally:
+                pb_conn.close()
+            db.update_state_after_write(state, state["db_path"])
+            st.success(t("phase_balance.run_success", count=count))
+        except Exception as exc:  # pragma: no cover - UI error path
+            st.error(t("phase_balance.run_error", exc=exc))
+
+    balance = db.get_panel_phase_balance(conn, panel_id, mode="NORMAL")
+    if balance:
+        st.caption(t("phase_balance.totals_caption"))
+        cols = st.columns(4)
+        cols[0].metric(t("phase_balance.i_l1"), f"{float(balance['i_l1']):.2f} A")
+        cols[1].metric(t("phase_balance.i_l2"), f"{float(balance['i_l2']):.2f} A")
+        cols[2].metric(t("phase_balance.i_l3"), f"{float(balance['i_l3']):.2f} A")
+        cols[3].metric(t("phase_balance.unbalance_pct"), f"{float(balance['unbalance_pct']):.1f}%")
+        st.caption(t("phase_balance.updated_at", at=balance.get("updated_at") or t("common.dash")))
+
+    circuits = db.list_circuits(conn, panel_id)
+    circuits_1ph = [c for c in circuits if c.get("phases") == 1]
+    if not circuits_1ph:
+        st.info(t("phase_balance.no_1ph_circuits"))
+        return
+
+    df = pd.DataFrame(
+        [
+            {
+                "id": c["id"],
+                "name": c.get("name") or "",
+                "phases": int(c["phases"]),
+                "i_calc_a": float(c["i_calc_a"]),
+                "phase": c.get("phase") or "",
+            }
+            for c in circuits_1ph
+        ]
+    )
+
+    phase_options = ["", "L1", "L2", "L3"]
+    col_config = {
+        "id": st.column_config.TextColumn(t("phase_balance.col_id"), disabled=True),
+        "name": st.column_config.TextColumn(t("phase_balance.col_name"), disabled=True),
+        "phases": st.column_config.NumberColumn(t("phase_balance.col_phases"), disabled=True),
+        "i_calc_a": st.column_config.NumberColumn(
+            t("phase_balance.col_i_calc_a"), format="%.2f", disabled=True
+        ),
+        "phase": st.column_config.SelectboxColumn(
+            t("phase_balance.col_phase"),
+            options=phase_options,
+            required=False,
+            default="",
+            disabled=not is_edit,
+        ),
+    }
+
+    edited = st.data_editor(
+        df,
+        column_config=col_config,
+        use_container_width=True,
+        key="phase_balance_circuits",
+        disabled=["id", "name", "phases", "i_calc_a"],
+    )
+
+    if is_edit and st.button(t("phase_balance.save_phases_btn")):
+        try:
+            with db.tx(conn):
+                for _, row in edited.iterrows():
+                    circ_id = row["id"]
+                    new_phase = row.get("phase") or ""
+                    new_phase = str(new_phase).strip() if new_phase else None
+                    if new_phase == "":
+                        new_phase = None
+                    db.update_circuit_phase(conn, circ_id, new_phase)
+                db.touch_ui_input_meta(conn, panel_id, db.SUBSYSTEM_PHASE, note="phase_balance_edit")
+            db.update_state_after_write(state, state["db_path"], conn)
+            st.success(t("phase_balance.save_success"))
+        except Exception as exc:  # pragma: no cover - UI error path
+            st.error(t("phase_balance.save_error", exc=exc))

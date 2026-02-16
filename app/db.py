@@ -953,6 +953,65 @@ def apply_default_mode_rules(conn: sqlite3.Connection, panel_id: str) -> int:
     return n
 
 
+# --- Phase balance (MVP-BAL v0.1) ---
+
+
+def list_circuits(conn: sqlite3.Connection, panel_id: str) -> list[dict[str, Any]]:
+    """List circuits for panel: id, name, phases, i_calc_a, phase (nullable)."""
+    rows = conn.execute(
+        """
+        SELECT
+          c.id,
+          c.name,
+          c.phases,
+          COALESCE(cc.i_calc_a, c.i_calc_a) AS i_calc_a,
+          c.phase
+        FROM circuits c
+        LEFT JOIN circuit_calc cc ON cc.circuit_id = c.id
+        WHERE c.panel_id = ?
+        ORDER BY COALESCE(c.name, ''), c.id ASC
+        """,
+        (panel_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def update_circuit_phase(
+    conn: sqlite3.Connection, circuit_id: str, phase_or_none: str | None
+) -> None:
+    """Update circuit phase. Allowed: None, 'L1', 'L2', 'L3'."""
+    if phase_or_none is not None and phase_or_none != "":
+        val = str(phase_or_none).strip().upper()
+        if val not in ("L1", "L2", "L3"):
+            raise ValueError(f"phase must be L1, L2, L3 or empty; got {phase_or_none!r}")
+        conn.execute(
+            "UPDATE circuits SET phase = ? WHERE id = ?",
+            (val, circuit_id),
+        )
+    else:
+        conn.execute(
+            "UPDATE circuits SET phase = NULL WHERE id = ?",
+            (circuit_id,),
+        )
+
+
+def get_panel_phase_balance(
+    conn: sqlite3.Connection, panel_id: str, mode: str = "NORMAL"
+) -> dict[str, Any] | None:
+    """Read panel_phase_balance for given panel and mode."""
+    if not table_exists(conn, "panel_phase_balance"):
+        return None
+    row = conn.execute(
+        """
+        SELECT i_l1, i_l2, i_l3, unbalance_pct, updated_at
+        FROM panel_phase_balance
+        WHERE panel_id = ? AND mode = ?
+        """,
+        (panel_id, mode),
+    ).fetchone()
+    return dict(row) if row else None
+
+
 def list_section_calc(
     conn: sqlite3.Connection, panel_id: str, mode: str
 ) -> list[dict[str, Any]]:
