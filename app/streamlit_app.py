@@ -12,11 +12,15 @@ from app import db  # noqa: E402
 from app.i18n import t  # noqa: E402
 from app.views import (  # noqa: E402
     calculate,
+    consumers_feeds,
     db_connect,
     export,
+    feed_roles,
+    mode_rules,
     overview,
     panels,
     rtm,
+    sections_summary,
     wizard,
 )
 
@@ -130,6 +134,10 @@ def main() -> None:
                 t("nav.panels"),
                 t("nav.rtm"),
                 t("nav.calculate"),
+                t("nav.feed_roles"),
+                t("nav.consumers_feeds"),
+                t("nav.mode_rules"),
+                t("nav.sections_summary"),
                 t("nav.export"),
             ]
             page = st.radio(t("sidebar.navigation"), nav_options)
@@ -141,6 +149,10 @@ def main() -> None:
             t("nav.panels"): panels,
             t("nav.rtm"): rtm,
             t("nav.calculate"): calculate,
+            t("nav.feed_roles"): feed_roles,
+            t("nav.consumers_feeds"): consumers_feeds,
+            t("nav.mode_rules"): mode_rules,
+            t("nav.sections_summary"): sections_summary,
             t("nav.export"): export,
         }
 

@@ -43,7 +43,12 @@ def render(conn, state: dict) -> None:
     du_info = db.du_status(conn, panel_id, external_change=state.get("external_change", False))
     status_chip("DU", du_info, t=t)
 
-    sections_mode = st.radio(t("calculate.sections_mode"), ["NORMAL", "RESERVE"], horizontal=True)
+    sections_mode = st.radio(
+        t("calculate.sections_mode"),
+        ["NORMAL", "EMERGENCY"],
+        format_func=lambda x: t("mode.normal") if x == "NORMAL" else t("mode.emergency"),
+        horizontal=True,
+    )
     sections_info = db.sections_status(
         conn,
         panel_id,

@@ -758,3 +758,213 @@ def seed_cable_sections_if_empty(conn: sqlite3.Connection, seed_sql_path: str | 
     sql = Path(seed_sql_path).read_text(encoding="utf-8")
     conn.executescript(sql)
     return count_table(conn, "cable_sections")
+
+
+# --- Feeds v2 DB layer ---
+
+
+def list_feed_roles(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    if not table_exists(conn, "feed_roles"):
+        return []
+    rows = conn.execute(
+        "SELECT id, code, title_ru, title_en, is_default FROM feed_roles ORDER BY code"
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def upsert_feed_role_titles(
+    conn: sqlite3.Connection, role_id: str, title_ru: str | None, title_en: str | None
+) -> None:
+    conn.execute(
+        """
+        UPDATE feed_roles SET title_ru = ?, title_en = ? WHERE id = ?
+        """,
+        (title_ru or "", title_en or "", role_id),
+    )
+
+
+def list_modes(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    if not table_exists(conn, "modes"):
+        return []
+    rows = conn.execute("SELECT id, code FROM modes ORDER BY code").fetchall()
+    return [dict(r) for r in rows]
+
+
+def list_bus_sections(conn: sqlite3.Connection, panel_id: str) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        "SELECT id, panel_id, name FROM bus_sections WHERE panel_id = ? ORDER BY name",
+        (panel_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def list_consumers(conn: sqlite3.Connection, panel_id: str) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        """
+        SELECT id, panel_id, name, load_ref_type, load_ref_id, notes,
+               p_kw, q_kvar, s_kva, i_a
+        FROM consumers
+        WHERE panel_id = ?
+        ORDER BY name
+        """,
+        (panel_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def upsert_consumer(conn: sqlite3.Connection, panel_id: str, data: dict[str, Any]) -> str:
+    consumer_id = str(data.get("id") or uuid.uuid4())
+    load_ref_type = data.get("load_ref_type", "RTM_PANEL")
+    load_ref_id = data.get("load_ref_id", panel_id)
+    if load_ref_type == "MANUAL":
+        p_kw = data.get("p_kw")
+        q_kvar = data.get("q_kvar")
+        s_kva = data.get("s_kva")
+        i_a = data.get("i_a")
+    else:
+        p_kw = q_kvar = s_kva = i_a = None
+    conn.execute(
+        """
+        INSERT INTO consumers (id, panel_id, name, load_ref_type, load_ref_id, notes, p_kw, q_kvar, s_kva, i_a)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          name = excluded.name,
+          load_ref_type = excluded.load_ref_type,
+          load_ref_id = excluded.load_ref_id,
+          notes = excluded.notes,
+          p_kw = excluded.p_kw,
+          q_kvar = excluded.q_kvar,
+          s_kva = excluded.s_kva,
+          i_a = excluded.i_a
+        """,
+        (
+            consumer_id,
+            panel_id,
+            data["name"],
+            load_ref_type,
+            load_ref_id,
+            data.get("notes"),
+            p_kw,
+            q_kvar,
+            s_kva,
+            i_a,
+        ),
+    )
+    return consumer_id
+
+
+def delete_consumer(conn: sqlite3.Connection, consumer_id: str) -> None:
+    conn.execute("DELETE FROM consumers WHERE id = ?", (consumer_id,))
+
+
+def list_consumer_feeds(conn: sqlite3.Connection, panel_id: str) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        """
+        SELECT f.id, f.consumer_id, f.bus_section_id, f.feed_role_id, f.priority,
+               bs.name AS bus_section_name
+        FROM consumer_feeds f
+        JOIN consumers c ON c.id = f.consumer_id
+        LEFT JOIN bus_sections bs ON bs.id = f.bus_section_id
+        WHERE c.panel_id = ?
+        ORDER BY c.name, f.priority
+        """,
+        (panel_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def upsert_consumer_feed(
+    conn: sqlite3.Connection,
+    consumer_id: str,
+    feed_id: str | None,
+    bus_section_id: str,
+    feed_role_id: str,
+    priority: int,
+) -> str:
+    feed_id = str(feed_id or uuid.uuid4())
+    conn.execute(
+        """
+        INSERT INTO consumer_feeds (id, consumer_id, bus_section_id, feed_role_id, priority)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          bus_section_id = excluded.bus_section_id,
+          feed_role_id = excluded.feed_role_id,
+          priority = excluded.priority
+        """,
+        (feed_id, consumer_id, bus_section_id, feed_role_id, priority),
+    )
+    return feed_id
+
+
+def delete_consumer_feed(conn: sqlite3.Connection, feed_id: str) -> None:
+    conn.execute("DELETE FROM consumer_feeds WHERE id = ?", (feed_id,))
+
+
+def list_consumer_mode_rules(
+    conn: sqlite3.Connection, panel_id: str
+) -> list[dict[str, Any]]:
+    if not table_exists(conn, "consumer_mode_rules"):
+        return []
+    rows = conn.execute(
+        """
+        SELECT cmr.consumer_id, cmr.mode_id, cmr.active_feed_role_id
+        FROM consumer_mode_rules cmr
+        JOIN consumers c ON c.id = cmr.consumer_id
+        WHERE c.panel_id = ?
+        ORDER BY c.name, cmr.mode_id
+        """,
+        (panel_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def upsert_consumer_mode_rule(
+    conn: sqlite3.Connection,
+    consumer_id: str,
+    mode_id: str,
+    active_feed_role_id: str,
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO consumer_mode_rules (consumer_id, mode_id, active_feed_role_id)
+        VALUES (?, ?, ?)
+        ON CONFLICT(consumer_id, mode_id) DO UPDATE SET
+          active_feed_role_id = excluded.active_feed_role_id
+        """,
+        (consumer_id, mode_id, active_feed_role_id),
+    )
+
+
+def apply_default_mode_rules(conn: sqlite3.Connection, panel_id: str) -> int:
+    """Insert default rules (NORMAL->MAIN, EMERGENCY->RESERVE) for consumers missing them."""
+    consumers = list_consumers(conn, panel_id)
+    existing = {
+        (r["consumer_id"], r["mode_id"])
+        for r in list_consumer_mode_rules(conn, panel_id)
+    }
+    n = 0
+    for c in consumers:
+        cid = c["id"]
+        for mid, role_id in [("NORMAL", "MAIN"), ("EMERGENCY", "RESERVE")]:
+            if (cid, mid) not in existing:
+                upsert_consumer_mode_rule(conn, cid, mid, role_id)
+                existing.add((cid, mid))
+                n += 1
+    return n
+
+
+def list_section_calc(
+    conn: sqlite3.Connection, panel_id: str, mode: str
+) -> list[dict[str, Any]]:
+    rows = conn.execute(
+        """
+        SELECT sc.panel_id, sc.bus_section_id, sc.mode, sc.p_kw, sc.q_kvar, sc.s_kva, sc.i_a, sc.updated_at,
+               bs.name AS bus_section_name
+        FROM section_calc sc
+        LEFT JOIN bus_sections bs ON bs.id = sc.bus_section_id
+        WHERE sc.panel_id = ? AND sc.mode = ?
+        ORDER BY bs.name
+        """,
+        (panel_id, mode),
+    ).fetchall()
+    return [dict(r) for r in rows]
