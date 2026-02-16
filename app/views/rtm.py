@@ -123,9 +123,9 @@ def render(conn, state: dict) -> None:
         system_type=panel.get("system_type"),
         external_change=state.get("external_change", False),
     )
-    status_chip("RTM", rtm_info, t=t)
+    status_chip(t("chips.rtm"), rtm_info, t=t)
     if panel.get("system_type") == "1PH":
-        status_chip("PHASE", phase_info, t=t)
+        status_chip(t("chips.phase"), phase_info, t=t)
 
     rows = db.list_rtm_rows_with_calc(conn, panel_id)
     df_full = pd.DataFrame(rows)

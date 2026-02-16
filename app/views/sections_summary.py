@@ -28,18 +28,18 @@ def render(conn, state: dict) -> None:
         info_normal = db.sections_status(
             conn, panel_id, mode="NORMAL", external_change=state.get("external_change", False)
         )
-        status_chip("NORMAL", info_normal, t=t)
+        status_chip(t("mode.normal"), info_normal, t=t)
         rows_normal = db.list_section_calc(conn, panel_id, "NORMAL")
         if rows_normal:
             st.dataframe(
                 [
                     {
                         t("consumers.bus_section"): r.get("bus_section_name") or r["bus_section_id"],
-                        "P (kW)": r["p_kw"],
-                        "Q (kvar)": r["q_kvar"],
-                        "S (kVA)": r["s_kva"],
-                        "I (A)": r["i_a"],
-                        "updated_at": r.get("updated_at", ""),
+                        t("consumers.p_kw"): r["p_kw"],
+                        t("consumers.q_kvar"): r["q_kvar"],
+                        t("consumers.s_kva"): r["s_kva"],
+                        t("consumers.i_a"): r["i_a"],
+                        t("sections_summary.updated_at"): r.get("updated_at", ""),
                     }
                     for r in rows_normal
                 ],
@@ -55,18 +55,18 @@ def render(conn, state: dict) -> None:
         info_emergency = db.sections_status(
             conn, panel_id, mode="EMERGENCY", external_change=state.get("external_change", False)
         )
-        status_chip("EMERGENCY", info_emergency, t=t)
+        status_chip(t("mode.emergency"), info_emergency, t=t)
         rows_emergency = db.list_section_calc(conn, panel_id, "EMERGENCY")
         if rows_emergency:
             st.dataframe(
                 [
                     {
                         t("consumers.bus_section"): r.get("bus_section_name") or r["bus_section_id"],
-                        "P (kW)": r["p_kw"],
-                        "Q (kvar)": r["q_kvar"],
-                        "S (kVA)": r["s_kva"],
-                        "I (A)": r["i_a"],
-                        "updated_at": r.get("updated_at", ""),
+                        t("consumers.p_kw"): r["p_kw"],
+                        t("consumers.q_kvar"): r["q_kvar"],
+                        t("consumers.s_kva"): r["s_kva"],
+                        t("consumers.i_a"): r["i_a"],
+                        t("sections_summary.updated_at"): r.get("updated_at", ""),
                     }
                     for r in rows_emergency
                 ],

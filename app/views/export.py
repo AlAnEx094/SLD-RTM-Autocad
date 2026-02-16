@@ -28,13 +28,13 @@ def render(conn, state: dict) -> None:
 
     rtm_info = db.rtm_status(conn, panel_id, external_change=state.get("external_change", False))
     if rtm_info.status != "OK":
-        status_chip("RTM", rtm_info, t=t)
+        status_chip(t("chips.rtm"), rtm_info, t=t)
         st.error(t("export.blocked"))
         allow = st.checkbox(t("export.allow_anyway"))
         if not allow:
             return
     else:
-        status_chip("RTM", rtm_info, t=t)
+        status_chip(t("chips.rtm"), rtm_info, t=t)
 
     st.subheader(t("export.json_header"))
     default_json = Path("out") / f"payload_{panel_id[:8]}.json"

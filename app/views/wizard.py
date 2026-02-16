@@ -21,7 +21,8 @@ def render(conn, state: dict) -> None:
     cols = st.columns([2, 1, 1])
     with cols[0]:
         st.progress((state["wizard_step"] + 1) / len(steps))
-        st.caption(" → ".join([f"[{s}]" if i == state["wizard_step"] else s for i, s in enumerate(steps)]))
+        sep = t("common.arrow_sep")
+        st.caption(sep.join([f"[{s}]" if i == state["wizard_step"] else s for i, s in enumerate(steps)]))
     with cols[1]:
         if st.button(t("wizard.back"), disabled=state["wizard_step"] == 0):
             state["wizard_step"] = max(0, state["wizard_step"] - 1)

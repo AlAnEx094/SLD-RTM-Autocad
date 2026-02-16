@@ -52,7 +52,12 @@ def render(conn, state: dict) -> None:
         st.success(t("db_connect.schema_ok"))
 
     if schema["has_migrations"]:
-        st.write(f"schema_migrations: {', '.join(schema['migrations'])}")
+        st.write(
+            t(
+                "db_connect.migrations_list",
+                migrations=", ".join(schema.get("migrations") or []),
+            )
+        )
     else:
         st.warning(t("db_connect.no_migrations_table"))
 

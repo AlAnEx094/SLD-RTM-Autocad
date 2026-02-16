@@ -29,7 +29,7 @@ def render(conn, state: dict) -> None:
         st.warning(t("errors.db_modified_outside"))
 
     rtm_info = db.rtm_status(conn, panel_id, external_change=state.get("external_change", False))
-    status_chip("RTM", rtm_info, t=t)
+    status_chip(t("chips.rtm"), rtm_info, t=t)
 
     if panel.get("system_type") == "1PH":
         phase_info = db.phase_status(
@@ -38,10 +38,10 @@ def render(conn, state: dict) -> None:
             system_type=panel.get("system_type"),
             external_change=state.get("external_change", False),
         )
-        status_chip("PHASE", phase_info, t=t)
+        status_chip(t("chips.phase"), phase_info, t=t)
 
     du_info = db.du_status(conn, panel_id, external_change=state.get("external_change", False))
-    status_chip("DU", du_info, t=t)
+    status_chip(t("chips.du"), du_info, t=t)
 
     sections_mode = st.radio(
         t("calculate.sections_mode"),
@@ -55,7 +55,8 @@ def render(conn, state: dict) -> None:
         mode=sections_mode,
         external_change=state.get("external_change", False),
     )
-    status_chip(f"SECTIONS ({sections_mode})", sections_info, t=t)
+    sections_mode_label = t("mode.normal") if sections_mode == "NORMAL" else t("mode.emergency")
+    status_chip(t("chips.sections_with_mode", mode=sections_mode_label), sections_info, t=t)
 
     if state.get("mode_effective") != "EDIT":
         st.info(t("calculate.switch_edit"))
@@ -125,7 +126,7 @@ def render(conn, state: dict) -> None:
             st.error(t("errors.du_calc_failed", exc=exc))
 
     st.subheader(t("calculate.run_sections"))
-    if st.button(t("calculate.aggregate_btn", mode=sections_mode)):
+    if st.button(t("calculate.aggregate_btn", mode=sections_mode_label)):
         try:
             from calc_core.section_aggregation import calc_section_loads
 

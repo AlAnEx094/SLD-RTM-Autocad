@@ -48,13 +48,23 @@ def render(conn, state: dict) -> None:
         cid = consumer["id"]
         feeds = feeds_by_consumer.get(cid, [])
 
-        with st.expander(f"{consumer['name']} ({consumer['load_ref_type']})", expanded=True):
+        load_ref_label = (
+            t("consumers.load_ref_rtm")
+            if consumer.get("load_ref_type") == "RTM_PANEL"
+            else t("consumers.load_ref_manual")
+        )
+        with st.expander(f"{consumer['name']} ({load_ref_label})", expanded=True):
             st.write(t("consumers.name"), consumer["name"])
             st.write(t("consumers.load_ref_type"), consumer["load_ref_type"])
             if consumer["load_ref_type"] == "MANUAL":
                 st.write(
-                    f"P={consumer.get('p_kw')} kW, Q={consumer.get('q_kvar')} kvar, "
-                    f"S={consumer.get('s_kva')} kVA, I={consumer.get('i_a')} A"
+                    t(
+                        "consumers.power_summary",
+                        p=consumer.get("p_kw"),
+                        q=consumer.get("q_kvar"),
+                        s=consumer.get("s_kva"),
+                        i=consumer.get("i_a"),
+                    )
                 )
 
             st.subheader(t("consumers.feeds_header"))
@@ -64,7 +74,12 @@ def render(conn, state: dict) -> None:
                     with col1:
                         st.text(bus_options.get(feed["bus_section_id"], feed["bus_section_id"]))
                     with col2:
-                        st.text(role_options.get(feed["feed_role_id"], feed["feed_role_id"] or "-"))
+                        st.text(
+                            role_options.get(
+                                feed["feed_role_id"],
+                                feed["feed_role_id"] or t("common.dash"),
+                            )
+                        )
                     with col3:
                         st.text(str(feed.get("priority", 1)))
                     with col4:
@@ -83,7 +98,7 @@ def render(conn, state: dict) -> None:
                                 st.session_state[confirm_key] = True
                                 st.warning(t("consumers.confirm_delete_feed"))
             else:
-                st.caption("—")
+                st.caption(t("common.dash"))
 
             if is_edit and bus_sections and feed_roles:
                 with st.form(f"add_feed_{cid}"):
