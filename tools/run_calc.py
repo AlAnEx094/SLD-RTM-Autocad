@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from calc_core import run_panel_calc  # noqa: E402
-from calc_core.section_aggregation import aggregate_section_loads  # noqa: E402
+from calc_core.section_aggregation import calc_section_loads  # noqa: E402
 from calc_core.voltage_drop import calc_panel_du  # noqa: E402
 
 
@@ -233,14 +233,14 @@ def main() -> int:
     )
     ap.add_argument(
         "--sections-mode",
-        choices=("NORMAL", "RESERVE"),
+        choices=("NORMAL", "EMERGENCY"),
         default=None,
-        help="Consumer feed role for section aggregation (default: NORMAL).",
+        help="Calculation mode for section aggregation (default: NORMAL).",
     )
     ap.add_argument(
         "--mode",
         dest="mode_deprecated",
-        choices=("NORMAL", "RESERVE"),
+        choices=("NORMAL", "EMERGENCY"),
         default=None,
         help="DEPRECATED alias for --sections-mode (use --sections-mode).",
     )
@@ -278,7 +278,8 @@ def main() -> int:
     res = run_panel_calc(str(db_path), panel_id, note="tools/run_calc.py")
 
     du_count = None
-    section_loads = None
+    section_count = None
+    section_rows = []
     if args.calc_du:
         seed_cable_sections_if_empty(db_path)
         con = sqlite3.connect(db_path)
@@ -297,9 +298,29 @@ def main() -> int:
         con = sqlite3.connect(db_path)
         try:
             con.execute("PRAGMA foreign_keys = ON;")
-            section_loads = aggregate_section_loads(
-                con, panel_id, mode=effective_sections_mode
-            )
+            section_count = calc_section_loads(con, panel_id, mode=effective_sections_mode)
+            section_rows = con.execute(
+                """
+                SELECT bs.name, sc.p_kw, sc.q_kvar, sc.s_kva, sc.i_a
+                FROM section_calc sc
+                JOIN bus_sections bs ON bs.id = sc.bus_section_id
+                WHERE sc.panel_id = ? AND sc.mode = ?
+                ORDER BY bs.name ASC
+                """,
+                (panel_id, effective_sections_mode),
+            ).fetchall()
+            if not section_rows and effective_sections_mode == "EMERGENCY":
+                # Compatibility: legacy DBs used mode=RESERVE.
+                section_rows = con.execute(
+                    """
+                    SELECT bs.name, sc.p_kw, sc.q_kvar, sc.s_kva, sc.i_a
+                    FROM section_calc sc
+                    JOIN bus_sections bs ON bs.id = sc.bus_section_id
+                    WHERE sc.panel_id = ? AND sc.mode = ?
+                    ORDER BY bs.name ASC
+                    """,
+                    (panel_id, "RESERVE"),
+                ).fetchall()
         finally:
             con.close()
 
@@ -313,23 +334,23 @@ def main() -> int:
     print("row_calc_rows:", res.row_count)
     if du_count is not None:
         print("du_circuits_processed:", du_count)
-    if section_loads is not None:
+    if section_count is not None:
         print(f"sections_mode: {effective_sections_mode}")
-        if not section_loads:
+        if section_count == 0:
             print("sections: none")
         else:
-            for entry in sorted(section_loads.values(), key=lambda item: item.section_name):
+            for name, p_kw, q_kvar, s_kva, i_a in section_rows:
                 print(
                     "section:",
-                    entry.section_name,
+                    name,
                     "P_kw=",
-                    round(entry.p_kw, 6),
+                    round(float(p_kw), 6),
                     "Q_kvar=",
-                    round(entry.q_kvar, 6),
+                    round(float(q_kvar), 6),
                     "S_kva=",
-                    round(entry.s_kva, 6),
+                    round(float(s_kva), 6),
                     "I_a=",
-                    round(entry.i_a, 6),
+                    round(float(i_a), 6),
                 )
     return 0
 

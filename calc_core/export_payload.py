@@ -92,7 +92,8 @@ def build_payload(conn: sqlite3.Connection, panel_id: str) -> dict:
     for row in bus_sections_rows:
         bus_section_id = str(row["id"])
         modes: dict[str, dict[str, float]] = {}
-        for mode in ("NORMAL", "RESERVE"):
+        # Feeds v2 uses NORMAL/EMERGENCY; legacy DBs used NORMAL/RESERVE.
+        for mode in ("NORMAL", "EMERGENCY", "RESERVE"):
             entry = section_calc_by_key.get((bus_section_id, mode))
             if entry is not None:
                 modes[mode] = entry
