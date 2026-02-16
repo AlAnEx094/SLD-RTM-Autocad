@@ -2,7 +2,7 @@
 -- Агрегированный слепок схемы (MVP-0.3 + Feeds v2).
 -- Источник истины для эволюции схемы — миграции в db/migrations/.
 --
--- Схема: 0001..0004 + 0005_feeds_v2_refs + 0006_section_calc_mode_emergency
+-- Схема: 0001..0004 + 0005_feeds_v2_refs + 0006_section_calc_mode_emergency + 0007_phase_balance
 
 PRAGMA foreign_keys = ON;
 
@@ -117,6 +117,7 @@ CREATE TABLE IF NOT EXISTS circuits (
   cos_phi REAL NOT NULL,
   load_kind TEXT NOT NULL DEFAULT 'OTHER' CHECK (load_kind IN ('LIGHTING', 'OTHER')),
   i_calc_a REAL NOT NULL,
+  phase TEXT NULL CHECK (phase IN ('L1','L2','L3')),
   FOREIGN KEY(panel_id) REFERENCES panels(id) ON DELETE CASCADE
 );
 
@@ -199,7 +200,7 @@ CREATE TABLE IF NOT EXISTS rtm_panel_calc (
   FOREIGN KEY(panel_id) REFERENCES panels(id) ON DELETE CASCADE
 );
 
--- Итоги фазировки по щиту
+-- Итоги фазировки по щиту (legacy: RTM A/B/C)
 CREATE TABLE IF NOT EXISTS panel_phase_calc (
   panel_id TEXT PRIMARY KEY,
   ia_a REAL,
@@ -212,4 +213,19 @@ CREATE TABLE IF NOT EXISTS panel_phase_calc (
   updated_at TEXT,
   FOREIGN KEY(panel_id) REFERENCES panels(id) ON DELETE CASCADE
 );
+
+-- Балансировка фаз по 1Ф цепям (MVP-BAL v0.1: L1/L2/L3)
+CREATE TABLE IF NOT EXISTS panel_phase_balance (
+  panel_id TEXT NOT NULL REFERENCES panels(id) ON DELETE CASCADE,
+  mode TEXT NOT NULL CHECK(mode IN ('NORMAL','EMERGENCY')),
+  i_l1 REAL NOT NULL,
+  i_l2 REAL NOT NULL,
+  i_l3 REAL NOT NULL,
+  unbalance_pct REAL NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY(panel_id, mode)
+);
+
+CREATE INDEX IF NOT EXISTS idx_panel_phase_balance_panel_id ON panel_phase_balance(panel_id);
+CREATE INDEX IF NOT EXISTS idx_panel_phase_balance_mode ON panel_phase_balance(mode);
 
