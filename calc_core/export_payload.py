@@ -105,12 +105,18 @@ def build_payload(conn: sqlite3.Connection, panel_id: str) -> dict:
             }
         )
 
+    has_phase = any(
+        r[1] == "phase"
+        for r in conn.execute("PRAGMA table_info(circuits)").fetchall()
+    )
+    phase_col = "c.phase," if has_phase else ""
     circuits_rows = conn.execute(
-        """
+        f"""
         SELECT
           c.id AS circuit_id,
           c.name,
           c.phases,
+          {phase_col}
           c.length_m,
           c.material,
           c.cos_phi,
@@ -144,11 +150,20 @@ def build_payload(conn: sqlite3.Connection, panel_id: str) -> dict:
             du_limit_pct = None
             s_mm2_selected = None
 
+        phases = int(row["phases"])
+        phase_raw = row["phase"] if has_phase else None
+        phase_val = None
+        if phases == 1 and phase_raw is not None:
+            s = str(phase_raw).strip()
+            if s in ("L1", "L2", "L3"):
+                phase_val = s
+
         circuits_payload.append(
             {
                 "circuit_id": circuit_id,
                 "name": row["name"],
-                "phases": int(row["phases"]),
+                "phases": phases,
+                "phase": phase_val,
                 "length_m": _required_float(
                     row["length_m"], "length_m", f"circuits.id={circuit_id}"
                 ),

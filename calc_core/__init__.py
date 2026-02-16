@@ -9,11 +9,13 @@ DWG/AutoCAD интеграция намеренно отсутствует: в �
 """
 
 from .kr_resolver import get_kr, resolve_kr
+from .phase_balance import calc_phase_balance
 from .rtm_f636 import run_panel_calc
 
 __all__ = [
     "get_kr",
     "resolve_kr",
     "run_panel_calc",
+    "calc_phase_balance",
 ]
 

@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from calc_core import run_panel_calc  # noqa: E402
+from calc_core.phase_balance import calc_phase_balance  # noqa: E402
 from calc_core.section_aggregation import calc_section_loads  # noqa: E402
 from calc_core.voltage_drop import calc_panel_du  # noqa: E402
 
@@ -244,6 +245,17 @@ def main() -> int:
         default=None,
         help="DEPRECATED alias for --sections-mode (use --sections-mode).",
     )
+    ap.add_argument(
+        "--calc-phase-balance",
+        action="store_true",
+        help="Run phase balance for 1PH circuits after base calc.",
+    )
+    ap.add_argument(
+        "--pb-mode",
+        choices=("NORMAL", "EMERGENCY"),
+        default="NORMAL",
+        help="Mode for panel_phase_balance (default: NORMAL).",
+    )
     args = ap.parse_args()
 
     db_path = Path(args.db)
@@ -280,12 +292,21 @@ def main() -> int:
     du_count = None
     section_count = None
     section_rows = []
+    pb_count = None
     if args.calc_du:
         seed_cable_sections_if_empty(db_path)
         con = sqlite3.connect(db_path)
         try:
             con.execute("PRAGMA foreign_keys = ON;")
             du_count = calc_panel_du(con, panel_id)
+        finally:
+            con.close()
+
+    if args.calc_phase_balance:
+        con = sqlite3.connect(db_path)
+        try:
+            con.execute("PRAGMA foreign_keys = ON;")
+            pb_count = calc_phase_balance(con, panel_id, mode=args.pb_mode)
         finally:
             con.close()
 
@@ -334,6 +355,8 @@ def main() -> int:
     print("row_calc_rows:", res.row_count)
     if du_count is not None:
         print("du_circuits_processed:", du_count)
+    if pb_count is not None:
+        print("phase_balance_circuits:", pb_count)
     if section_count is not None:
         print(f"sections_mode: {effective_sections_mode}")
         if section_count == 0:

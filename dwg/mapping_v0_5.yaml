@@ -10,6 +10,7 @@ circuits:
     I_A: "calc.i_calc_a"
     DU_PCT: "calc.du_pct"
     S_MM2: "calc.s_mm2_selected"
+    PHASE: "phase"
 sections:
   block_guid_attr: "GUID"
   attributes:
