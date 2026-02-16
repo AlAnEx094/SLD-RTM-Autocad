@@ -1,127 +1,140 @@
-# DB_ENGINEER TASK — feature/db-layer (MVP-0.3 Bus sections + consumers feeds)
+# DB_ENGINEER TASK — Feeds v2 schema + backward-tolerant migration
 
 ROLE: DB_ENGINEER  
-BRANCH: `feature/db-layer` (создать изменения и коммиты только здесь)  
-SCOPE (разрешено менять): **только `db/*` SQL файлы**  
-SCOPE (запрещено менять): `calc_core/*`, `tools/*`, `tests/*`, `docs/*`, `cad_adapter/*`
+BRANCH: `feature/feeds-v2-db` (создавай изменения и коммиты только здесь)  
+SCOPE (разрешено менять): **только `db/*` SQL файлы** (`db/migrations/*.sql`, `db/schema.sql`)  
+SCOPE (запрещено менять): `calc_core/*`, `tools/*`, `app/*`, `tests/*`, `docs/*`, `dwg/*`
 
 ## Контекст
 
-MVP-0.3 добавляет поддержку потребителя 1 категории с двумя вводами:
-`NORMAL`/`RESERVE` от разных секций шин ЩСН.
+Требования Sprint:
 
-Нужно хранить:
-- секции шин (`bus_sections`)
-- потребителей (`consumers`)
-- привязки вводов потребителей к секциям (`consumer_feeds`)
+- i18n делается отдельно (UI‑ветка), **в DB ветке только схема/миграции**.
+- Feeds v2 исправляет семантику: **роль ввода ≠ режим расчёта**.
 
-Важно:
-- DB = истина (ввод отдельно от расчёта).
-- Никаких изменений в существующих `circuits/*` и ΔU-таблицах: они живут отдельно.
+Источник требований:
 
-## Цель
+- `docs/ui/FEEDS_V2_SPEC.md` — термины/сущности/правила
 
-### 1) Миграция `db/migrations/0003_bus_and_feeds.sql` (обязательно)
+Текущее v1:
 
-Добавить таблицы:
+- `consumer_feeds.feed_role` ∈ {`NORMAL`,`RESERVE`}
+- `section_calc.mode` ∈ {`NORMAL`,`RESERVE`}
 
-#### A) `bus_sections`
+После v2:
 
-`bus_sections(id TEXT PK, panel_id TEXT FK, name TEXT NOT NULL)`
+- роли вводов: `feed_roles` (`MAIN/RESERVE/DG/DC/UPS`)
+- режимы расчёта: `modes` (`NORMAL/EMERGENCY`)
+- `consumer_feeds` хранит роль ввода + priority
+- `section_calc.mode` хранит **режим расчёта** (`NORMAL/EMERGENCY`)
 
-- `panel_id` -> `panels(id)` ON DELETE CASCADE
+## Цель (что сделать)
 
-#### B) `consumers`
+### 1) Добавить справочники (обязательно)
 
-```sql
-consumers(
-  id TEXT PRIMARY KEY,
-  panel_id TEXT NOT NULL REFERENCES panels(id) ON DELETE CASCADE,
-  name TEXT NOT NULL,
-  load_ref_type TEXT NOT NULL DEFAULT 'RTM_PANEL'
-    CHECK(load_ref_type IN ('RTM_PANEL','RTM_ROW','MANUAL')),
-  load_ref_id TEXT NOT NULL,
-  notes TEXT
-)
-```
+#### A) `feed_roles`
 
-MVP-решение для тестов: поддержать `MANUAL` нагрузку прямо в `consumers` (чтобы не мокать RTM):
+Создать таблицу:
 
-- добавить nullable-поля:
-  - `p_kw REAL`
-  - `q_kvar REAL`
-  - `s_kva REAL`
-  - `i_a REAL`
-- добавить CHECK:
-  - если `load_ref_type='MANUAL'` → все 4 поля NOT NULL
-  - если `load_ref_type<>'MANUAL'` → все 4 поля NULL
+`feed_roles(id TEXT PK, code TEXT UNIQUE, title_ru TEXT, title_en TEXT, is_default INT)`
 
-#### C) `consumer_feeds`
+Seed (idempotent):
 
-```sql
-consumer_feeds(
-  id TEXT PRIMARY KEY,
-  consumer_id TEXT NOT NULL REFERENCES consumers(id) ON DELETE CASCADE,
-  bus_section_id TEXT NOT NULL REFERENCES bus_sections(id) ON DELETE CASCADE,
-  feed_role TEXT NOT NULL CHECK(feed_role IN ('NORMAL','RESERVE'))
-)
-```
+- MAIN (is_default=1)
+- RESERVE
+- DG
+- DC
+- UPS
 
-Опциональные индексы:
-- `consumer_feeds(consumer_id)`
-- `consumer_feeds(bus_section_id)`
+#### B) `modes`
 
-### 2) Миграция данных: default bus section (обязательно)
+Создать таблицу:
 
-Требование: для каждого `panels.id` должна существовать хотя бы 1 запись `bus_sections`
-с именем `'DEFAULT'`, если для панели секций ещё нет.
+`modes(id TEXT PK, code TEXT UNIQUE)`
 
-Сделать это в конце `0003_bus_and_feeds.sql` через `INSERT ... SELECT`:
-- вставить `'DEFAULT'` для каждой панели, где `NOT EXISTS (bus_sections WHERE panel_id = panels.id)`
-- `id` генерировать внутри SQLite (например `lower(hex(randomblob(16)))`), т.к. Python/CLI не должны быть обязательны для миграции.
+Seed (idempotent):
 
-### 3) Миграция `db/migrations/0004_section_calc.sql` (обязательно)
+- NORMAL
+- EMERGENCY
 
-Добавить таблицу результатов агрегации по секциям:
-
-`section_calc(panel_id, bus_section_id, mode, p_kw, q_kvar, s_kva, i_a, updated_at)`
+### 2) Обновить `consumer_feeds` под v2 (обязательно)
 
 Требования:
-- `mode` в `('NORMAL','RESERVE')`
-- PK/unique: `(panel_id, bus_section_id, mode)`
-- FK:
-  - `panel_id` -> `panels(id)` ON DELETE CASCADE
-  - `bus_section_id` -> `bus_sections(id)` ON DELETE CASCADE
 
-### 4) Обновить `db/schema.sql` (обязательно)
+- добавить `feed_role_id` (FK → `feed_roles.id`)
+- добавить `priority INT NOT NULL DEFAULT 1`
+- старое поле `feed_role` (v1) **не использовать** в новой логике
 
-Добавить в snapshot новые таблицы и (если добавлялись) MANUAL поля в `consumers`.
+Backward-tolerant data migration (обязательно):
 
-## Deliverables
+- если в существующих данных есть `consumer_feeds.feed_role` (v1):
+  - `NORMAL` → `MAIN`
+  - `RESERVE` → `RESERVE`
+- миграция должна быть идемпотентной:
+  - не ломаться при повторном прогоне
+  - не перетирать `feed_role_id`, если он уже заполнен
 
-- `db/migrations/0003_bus_and_feeds.sql`
-- `db/migrations/0004_section_calc.sql`
-- Обновлённый `db/schema.sql`
+### 3) Добавить правила активной роли по режиму (обязательно)
+
+Создать таблицу:
+
+`consumer_mode_rules(consumer_id, mode_id, active_feed_role_id, PRIMARY KEY(consumer_id, mode_id))`
+
+FK:
+
+- `consumer_id` → `consumers.id` ON DELETE CASCADE
+- `mode_id` → `modes.id`
+- `active_feed_role_id` → `feed_roles.id`
+
+Data migration (best-effort, рекомендуется):
+
+- для всех существующих `consumers` вставить:
+  - NORMAL → MAIN
+  - EMERGENCY → RESERVE
+- вставка должна быть idempotent (`INSERT ... ON CONFLICT DO NOTHING` или эквивалент).
+
+### 4) Подготовить `section_calc` к v2 (обязательно, schema enabler)
+
+`calc_core` после v2 будет писать:
+
+- `section_calc.mode` ∈ {`NORMAL`,`EMERGENCY`}
+
+Сейчас CHECK ограничивает `('NORMAL','RESERVE')`. Нужно сделать миграцию схемы:
+
+- заменить `RESERVE` на `EMERGENCY` в допустимых значениях
+- при необходимости выполнить best‑effort перенос данных:
+  - существующие строки `section_calc.mode='RESERVE'` → `'EMERGENCY'`
+
+Важно: SQLite не умеет ALTER CHECK напрямую — ожидается “create new table → copy → drop → rename”.
+
+### 5) Обновить `db/schema.sql` snapshot (обязательно)
+
+- Отразить новые таблицы `feed_roles`, `modes`, `consumer_mode_rules`
+- Отразить изменения `consumer_feeds` (feed_role_id, priority; старое поле может оставаться)
+- Отразить изменения `section_calc.mode` (NORMAL/EMERGENCY)
+
+## Миграции (как оформить)
+
+- Не модифицировать старые миграции `0001..0004`.
+- Добавить новую(ые) миграцию(и) с новым номером(ами), например:
+  - `0005_feeds_v2_refs.sql` (справочники + consumer_feeds + rules)
+  - `0006_section_calc_mode_emergency.sql` (пересборка section_calc)
+
+Номер/разбиение — на твоё усмотрение, но миграции должны применяться последовательно и быть идемпотентными там, где это реально.
 
 ## Acceptance criteria
 
-- На пустой БД последовательное выполнение:
-  - `db/migrations/0001_init.sql`
-  - `db/migrations/0002_circuits.sql`
-  - `db/migrations/0003_bus_and_feeds.sql`
-  - `db/migrations/0004_section_calc.sql`
-  - `db/seed_cable_sections.sql`
-  проходит без ошибок.
-- Таблицы `bus_sections`, `consumers`, `consumer_feeds`, `section_calc` созданы и имеют нужные ограничения.
-- При наличии панелей (например, если миграция накатывается на непустую БД) после `0003`:
-  - для каждой панели есть хотя бы одна `bus_sections` (DEFAULT), если ранее не было секций.
-- CHECK-ограничение для MANUAL нагрузки работает (MANUAL требует p/q/s/i, non-MANUAL запрещает их).
+- На пустой БД последовательный прогон `db/migrations/0001..0004` + новых `0005..` проходит без ошибок.
+- `feed_roles` и `modes` seeded idempotent.
+- В существующей БД с v1 данными:
+  - `consumer_feeds.feed_role='NORMAL'` корректно маппится в `feed_role_id` роли `MAIN`
+  - `consumer_feeds.feed_role='RESERVE'` корректно маппится в `feed_role_id` роли `RESERVE`
+- Таблица `consumer_mode_rules` существует и принимает default‑правила.
+- `section_calc` после миграции принимает `mode='EMERGENCY'`.
 
 ## Git workflow (обязательно)
 
-1) `git checkout -b feature/db-layer` (или `git checkout feature/db-layer`, если уже существует)
+1) `git checkout -b feature/feeds-v2-db` (или `git checkout feature/feeds-v2-db`)
 2) Правки только в `db/*`
 3) `git add db`
-4) `git commit -m "db: add bus sections and consumer feeds (MVP-0.3)"`
-
-
+4) `git commit -m "db: add feeds v2 roles, modes, and migrations"`

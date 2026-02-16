@@ -1,97 +1,85 @@
-# CALC_ENGINEER TASK — feature/calc-core (MVP-0.5 DWG mapping + CSV attributes export)
+# CALC_ENGINEER TASK — Feeds v2 section aggregation (mode NORMAL/EMERGENCY)
 
 ROLE: CALC_ENGINEER  
-BRANCH: `feature/calc-core` (создать изменения и коммиты только здесь)  
-SCOPE (разрешено менять): `calc_core/*` и `tools/*`  
-SCOPE (запрещено менять): `db/*`, `tests/*`, `docs/*`, `cad_adapter/*`
+BRANCH: `feature/feeds-v2-calc` (создавай изменения и коммиты только здесь)  
+SCOPE (разрешено менять): `calc_core/*`, `tools/*`, `docs/contracts/SECTION_AGG_V2.md`  
+SCOPE (запрещено менять): `db/*`, `tests/*`, `app/*`, `dwg/*`
 
 ## Контекст
 
-MVP-0.5 добавляет слой маппинга атрибутов DWG и экспорт CSV для заполнения атрибутов блоков
-через внешний LISP/Script (без AutoCAD API).
+Feeds v2 исправляет модель:
 
-Вход: JSON payload v0.4 (получаем через `calc_core.export_payload.build_payload`).
+- `feed_role` = роль ввода (MAIN/RESERVE/DG/DC/UPS)
+- `mode` = режим расчёта (NORMAL/EMERGENCY)
 
-Цель: по YAML mapping генерировать CSV:
-- `attrs_panel.csv`  (GUID,ATTR,VALUE)
-- `attrs_circuits.csv` (GUID,ATTR,VALUE)
-- `attrs_sections.csv` (GUID,MODE,ATTR,VALUE)
+DB изменения приходят из ветки `feature/feeds-v2-db` и включают:
+
+- `feed_roles`, `modes`
+- `consumer_feeds.feed_role_id`, `consumer_feeds.priority`
+- `consumer_mode_rules(consumer_id, mode_id, active_feed_role_id)`
+- `section_calc.mode` ∈ {NORMAL, EMERGENCY}
+
+Источник требований:
+
+- `docs/ui/FEEDS_V2_SPEC.md` — норматив по сущностям/алгоритму
 
 ## Цель
 
-### 1) Mapping YAML
+### 1) Обновить `calc_core/section_aggregation.py` (обязательно)
 
-Файл mapping (в репозитории): `dwg/mapping_v0_5.yaml`
+Требование: пересчитать секции по **активному вводу** в зависимости от `mode`.
 
-Пример структуры:
+Алгоритм (норматив, см. SPEC):
 
-```yaml
-panel:
-  block_guid_attr: "GUID"
-  attributes:
-    PP_KW: "panel.rtm.pp_kw"
-    IP_A:  "panel.rtm.ip_a"
-circuits:
-  block_guid_attr: "GUID"
-  attributes:
-    CIR_NAME: "name"
-    I_A: "calc.i_calc_a"
-    DU_PCT: "calc.du_pct"
-    S_MM2: "calc.s_mm2_selected"
-sections:
-  block_guid_attr: "GUID"
-  attributes:
-    PP_KW: "modes.{MODE}.pp_kw"
-    IP_A:  "modes.{MODE}.ip_a"
-  modes: ["NORMAL","RESERVE"]
-```
+Для каждого consumer:
 
-### 2) CalcCore: `calc_core/export_attributes_csv.py`
+1) определить `active_role` для (consumer, mode):
+   - из `consumer_mode_rules`
+   - если нет — default: NORMAL→MAIN, EMERGENCY→RESERVE
+2) выбрать feed из `consumer_feeds` с `feed_role_id=active_role`:
+   - если несколько — выбрать `min(priority)`
+3) определить `bus_section_id` выбранного feed
+4) получить нагрузку consumer:
+   - `RTM_PANEL` → из `rtm_panel_calc` по `load_ref_id`
+   - `MANUAL` → из `consumers` (p/q/s/i)
+5) агрегировать в `section_calc` по `(panel_id, bus_section_id, mode)`
 
-Добавить модуль:
-- `load_mapping(path: str | Path) -> dict` (читает YAML)
-- `build_rows_from_payload(payload: dict, mapping: dict) -> dict[str, list[list[str]]]`
-  - возвращает 3 набора строк: `panel`, `circuits`, `sections`
-  - строки уже с форматированным VALUE
+Fallbacks (обязательное поведение):
 
-Решение по отсутствующим полям:
-- Если json_path ведёт в отсутствующее поле или значение `None` → **VALUE = ''** (пустая строка), строку **не пропускать**.
+- если нет feeds для выбранной `active_role`:
+  - сделать разумный fallback (описать и зафиксировать в `SECTION_AGG_V2.md`)
+  - если feeds отсутствуют — consumer пропустить с warning
 
-Форматирование чисел (дефолт, без опций в mapping):
-- `*_kw`, `*_kvar`, `*_kva`, `pp_kw/qp_kvar/sp_kva/p_kw/q_kvar/s_kva` → 2 знака
-- `*_a`, `ip_a`, `i_a`, `i_calc_a` → 1 знак
-- `du_pct`, `du_limit_pct` → 2 знака
-- `length_m` → 0 знаков
-- иначе: если число → без лишних хвостов (или 2 знака по умолчанию, но зафиксировать поведение в docs)
+Важно:
 
-### 3) Tools: `tools/export_attributes_csv.py`
+- поддержка 2+ и 3+ вводов через `priority`
+- детерминизм выбора (min priority)
 
-CLI, который **не запускает расчёты**:
-- args: `--db`, `--panel-id`, `--mapping dwg/mapping_v0_5.yaml`, `--out-dir out/`
-- читает payload через `build_payload(conn, panel_id)`
-- пишет 3 CSV файла в UTF-8:
-  - `attrs_panel.csv` header: `GUID,ATTR,VALUE`
-  - `attrs_circuits.csv` header: `GUID,ATTR,VALUE`
-  - `attrs_sections.csv` header: `GUID,MODE,ATTR,VALUE`
+### 2) Обновить CLI `tools/run_calc.py` (обязательно)
 
-### 4) Docs
+- `--calc-sections --sections-mode NORMAL|EMERGENCY`
+- оставить DEPRECATED alias `--mode` (как сейчас), но принимать значения NORMAL|EMERGENCY
+- help‑текст обновить: это **режим расчёта секций**, не “роль ввода”
 
-Добавить `docs/contracts/DWG_MAPPING_V0_5.md`:
-- что такое GUID и как LISP/Script матчится по GUID
-- формат CSV файлов
-- как задавать mapping YAML (панель/цепи/секции)
-- правила отсутствующих полей и `NO_CALC`
+### 3) Документировать контракт расчёта (обязательно)
+
+Создать/обновить `docs/contracts/SECTION_AGG_V2.md`:
+
+- входные таблицы
+- правила выбора активного ввода
+- fallback логика
+- формат результата в `section_calc` (mode = NORMAL/EMERGENCY)
 
 ## Acceptance criteria
 
-- `tools/export_attributes_csv.py` не пишет в БД и не запускает расчёты.
-- CSV файлы создаются и имеют ожидаемые заголовки/строки.
-- Существующие CLI не ломаются.
+- `calc_core.section_aggregation` корректно пишет/возвращает агрегаты для mode NORMAL и EMERGENCY.
+- `tools/run_calc.py` принимает `--sections-mode NORMAL|EMERGENCY` и имеет deprecated alias `--mode`.
+- Поведение задокументировано в `docs/contracts/SECTION_AGG_V2.md`.
 
-## Git workflow
+## Git workflow (обязательно)
 
-1) `git checkout -b feature/calc-core` (или `git checkout feature/calc-core`)
-2) Правки только в `calc_core/*` и `tools/*`
-3) `git add calc_core tools`
-4) `git commit -m "calc: add DWG mapping and CSV attributes export (MVP-0.5)"`
+1) `git checkout -b feature/feeds-v2-calc` (или `git checkout feature/feeds-v2-calc`)
+2) Правки только в `calc_core/*`, `tools/*`, `docs/contracts/SECTION_AGG_V2.md`
+3) `git add calc_core tools docs/contracts/SECTION_AGG_V2.md`
+4) `git commit -m "calc: implement feeds v2 section aggregation"`
 

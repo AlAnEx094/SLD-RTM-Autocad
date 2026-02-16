@@ -1,70 +1,82 @@
-# QA_ASSISTANT TASK — feature/ui-v0-2-qa (MVP-UI v0.2 Streamlit Operator UI)
+# QA_ASSISTANT TASK — Feeds v2 migration + section_calc v2 tests
 
 ROLE: QA_ASSISTANT  
-BRANCH: `feature/ui-v0-2-qa` (создать изменения и коммиты только здесь)  
-SCOPE (разрешено менять): `tests/*`, `docs/ui/STREAMLIT_UI_RUN.md`  
-SCOPE (запрещено менять): `db/*`, `calc_core/*`, `tools/*`, `app/*`, `dwg/*`
+BRANCH: `feature/feeds-v2-qa` (создавай изменения и коммиты только здесь)  
+SCOPE (разрешено менять): `tests/*`  
+SCOPE (запрещено менять): `db/*`, `calc_core/*`, `tools/*`, `app/*`, `docs/*`, `dwg/*`
 
 ## Контекст
 
-Проект добавляет операторский **Streamlit UI** (замена Excel) для ввода/контроля данных в SQLite,
-запуска расчётов и экспорта JSON/CSV для DWG.
+Sprint вводит:
 
-Требования:
-- `pytest -q` остаётся зелёным.
-- UI запускается вручную (`streamlit run app/streamlit_app.py`).
-- UI **не должен** редактировать `*_calc` таблицы (только read-only).
- - Валидация в Load Table обязана блокировать некорректный ввод и действия (Save/Calc/Export).
+- Feeds v2 schema (roles/modes/rules/priority)
+- Feeds v2 calc (section_calc агрегируется по mode NORMAL/EMERGENCY)
 
-## Что нужно сделать (минимум, high-signal)
+Твоя задача — high-signal тесты на миграцию и корректность агрегации.
 
-### 1) Smoke тест на “код UI компилируется” (обязательно)
+Источник требований:
 
-Добавить тест `tests/test_streamlit_ui_smoke.py`, который:
-- не поднимает веб-сервер,
-- не требует реальной БД,
-- проверяет, что модуль(и) `app/*` компилируются:
-  - через `python -m compileall app`
-  - (или через `compileall.compile_dir("app", quiet=1)`)
+- `docs/ui/FEEDS_V2_SPEC.md`
+- `docs/contracts/SECTION_AGG_V2.md` (будет добавлен calc-инженером)
 
-Цель: ловить синтаксические ошибки/опечатки в UI коде при CI запуске `pytest`.
+## Что нужно сделать (обязательно)
 
-### 2) Sanity: “UI не пишет в calc таблицы” (best-effort, без вторжения в app)
+### 1) Тест миграции Feeds v2 (обязательно)
 
-Если возможно без сложного рефакторинга UI, добавь **узкий** тест, который:
-- создаёт tmp SQLite,
-- прогоняет `tools/run_calc.ensure_migrations(tmp_db)` (чтобы схема была реальная),
-- импортирует только слой DB-хелперов UI (например `app/db.py`) и проверяет whitelist таблиц:
-  - список разрешённых для записи таблиц **НЕ содержит** `rtm_row_calc`, `rtm_panel_calc`, `circuit_calc`, `section_calc`, `panel_phase_calc`
+Добавить тест (например `tests/test_feeds_v2_migration.py`), который:
 
-Если такой whitelist не реализован в UI (или импорт тяжёлый) — пропусти пункт и зафиксируй это как TODO в `docs/ui/STREAMLIT_UI_RUN.md`.
+- создаёт tmp SQLite
+- накатывает миграции последовательно (как в остальных тестах проекта)
+- проверяет:
+  - seeded `feed_roles` содержит коды: MAIN, RESERVE, DG, DC, UPS
+  - seeded `modes` содержит коды: NORMAL, EMERGENCY
 
-### 3) Sanity: “валидация блокирует некорректный ввод” (обязательно)
+И отдельно проверить backward mapping:
 
-Добавить тест `tests/test_streamlit_ui_validation.py`, который **без запуска webserver** проверяет:
-- что функция(и) валидации Load Table (если вынесены в `app/` как pure функции) возвращают ошибки на некорректные данные.
+- создать минимальную v1 структуру consumer_feeds с `feed_role='NORMAL'/'RESERVE'` (или создать через старые миграции и вставки),
+- прогнать новую миграцию v2,
+- убедиться, что:
+  - `consumer_feeds.feed_role_id` заполнен
+  - `NORMAL` замапплен в роль `MAIN`
+  - `RESERVE` замапплен в роль `RESERVE`
 
-Если валидация сейчас реализована только внутри view и её нельзя импортировать без Streamlit контекста — зафиксировать TODO:
-- вынести валидацию в модуль `app/validation.py` (pure functions) и покрыть тестом.
-(Тест в этом случае можно ограничить smoke-assert, что TODO записан в runbook.)
+### 2) Тест section_calc v2 (обязательно)
 
-### 4) Обновить `docs/ui/STREAMLIT_UI_RUN.md`
+Добавить тест (например `tests/test_section_aggregation_v2.py`), который проверяет сценарий:
 
-Добавить раздел “QA smoke checklist”:
-- как быстро проверить ручной запуск UI,
-- какие минимальные клики сделать (выбор БД → выбрать panel → RTM table → calc → export),
-- как убедиться, что calc таблицы read-only.
+- consumer с двумя вводами:
+  - MAIN → S1
+  - RESERVE → S2
+- mode=NORMAL ⇒ нагрузка только в S1
+- mode=EMERGENCY ⇒ нагрузка только в S2
+
+Требования к setup:
+
+- загрузка consumer нагрузки:
+  - можно использовать `MANUAL` (p/q/s/i) для изоляции теста
+- mode rules:
+  - либо вставить `consumer_mode_rules` явно
+  - либо полагаться на default‑логику calc (если так реализовано) — но тогда тест должен явно это проверять
+
+### 3) Обновить/починить существующие тесты, которые используют RESERVE (обязательно)
+
+Проект сейчас имеет тесты, завязанные на `mode='RESERVE'` и `--sections-mode` choices.
+После v2:
+
+- `section_calc.mode` должен быть `NORMAL/EMERGENCY`
+- CLI `--sections-mode` должен быть `NORMAL/EMERGENCY`
+
+Требование: `pytest -q` зелёный.
 
 ## Acceptance criteria
 
-- `pytest -q` зелёный.
-- Есть тест, который гарантирует, что UI код компилируется.
-- В `docs/ui/STREAMLIT_UI_RUN.md` есть короткий чеклист sanity.
+- Добавлены тесты миграции и section_calc v2.
+- Все тесты проходят (`pytest -q`).
 
-## Git workflow
+## Git workflow (обязательно)
 
-1) `git checkout -b feature/ui-v0-2-qa` (или `git checkout feature/ui-v0-2-qa`)
-2) Правки только в `tests/*` и (опционально) `docs/ui/STREAMLIT_UI_RUN.md`
-3) `git add tests docs/ui/STREAMLIT_UI_RUN.md`
-4) `git commit -m "test: add UI v0.2 validation and smoke checks"`
+1) `git checkout -b feature/feeds-v2-qa` (или `git checkout feature/feeds-v2-qa`)
+2) Правки только в `tests/*`
+3) `git add tests`
+4) `git commit -m "test: add feeds v2 migration and aggregation coverage"`
 
