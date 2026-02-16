@@ -20,19 +20,24 @@ SCOPE (запрещено менять): `db/*`, `calc_core/*`, `tools/*`, `test
 
 - Добавить selector: **Русский / English**
 - RU default
-- хранить выбор в `st.session_state` (например `lang`)
+- хранить выбор в `st.session_state["lang"]` (коды: `"RU"`/`"EN"`)
+- отображаемые подписи брать из словаря: `t("sidebar.lang_ru")`, `t("sidebar.lang_en")`
 
 ### A2) Вынести все пользовательские строки в JSON (обязательно)
 
-- создать `app/i18n/ru.json` и `app/i18n/en.json`
-- вынести **все** UI строки:
+- использовать `app/i18n/ru.json` и `app/i18n/en.json`
+- вынести/заменить **все** UI строки (non-negotiable):
   - сайдбар, навигация, названия страниц
   - кнопки, подсказки, ошибки, предупреждения
   - статусы: `OK/STALE/NO_CALC/UNKNOWN`, режим доступа `READ_ONLY/EDIT`
+- ключи **стабильные**, без дублей; RU/EN словари **симметричны** (одинаковый набор ключей)
 
 ### A3) Helper `t(key, **kwargs)` (обязательно)
 
-- добавить helper (например `app/i18n.py` или `app/i18n/__init__.py`)
+- добавить `app/i18n/core.py`:
+  - `load_lang(lang: str) -> dict[str, str]` (кэшировать чтение JSON)
+  - `t(key: str, **kwargs) -> str` (как в SPEC)
+- `app/i18n/__init__.py` должен реэкспортировать `t` (и при необходимости `load_lang`)
 - `t(key, **kwargs)` должен:
   - выбирать словарь по `session_state["lang"]`
   - поддерживать `.format(**kwargs)`
@@ -41,6 +46,17 @@ SCOPE (запрещено менять): `db/*`, `calc_core/*`, `tools/*`, `test
 ### A4) Термины (обязательно)
 
 Использовать единый глоссарий из SPEC (feed=ввод, mode=режим расчёта, feed_role=роль ввода, bus section=секция шин, panel=щит).
+
+### A5) Замена строк в UI коде (обязательно)
+
+- заменить ВСЕ пользовательские строки в:
+  - `app/streamlit_app.py`
+  - `app/views/*.py`
+  - (если есть дубликат UI кода в соседней папке/копии проекта — править **тот**, который реально используется при `streamlit run` и `pytest -q`)
+- локализовать:
+  - навигацию
+  - режимы доступа (READ_ONLY/EDIT)
+  - статусы (OK/STALE/NO_CALC/UNKNOWN) — **как подписи**, не как данные/коды
 
 ## Цель B — Feeds v2 UI (G2 UI) в ветке `feature/feeds-v2-ui`
 

@@ -26,26 +26,28 @@
 | UI access mode | **Режим доступа** | **Access mode** | `READ_ONLY` / `EDIT` (UI). |
 | Status | **Статус** | **Status** | `OK/STALE/NO_CALC/UNKNOWN`. |
 
-## 2) UX requirements
+## 2) UX requirements (Variant A)
 
 - В сайдбаре добавить selector **“Русский / English”**.
-- Значение хранить в `st.session_state` (например ключ `lang`).
-- **Default = Русский** (при первом запуске сессии и при отсутствии значения).
+- Значение хранить в `st.session_state["lang"]`.
+- **Коды языков**: `"RU"` и `"EN"` (это значения состояния; отображаемые подписи локализуются).
+- **Default = RU** (при первом запуске сессии и при отсутствии значения).
 - Переключение языка **не должно** менять данные в БД; только перерисовка UI.
 
-## 3) Файлы локализации
+## 3) Файлы локализации (JSON)
 
-Создать:
+Используются (обязательны в репозитории):
 
-- `app/i18n/ru.json`
-- `app/i18n/en.json`
+- `app/i18n/ru.json` (RU)
+- `app/i18n/en.json` (EN)
 
 Требования:
 
 - JSON — UTF‑8.
-- Ключи строк — **стабильные**, snake_case или dot‑namespaced (рекомендуется dot‑namespaced).
+- Ключи строк — **стабильные**, **dot‑namespaced** (рекомендуется) вида `namespace.sub.key`.
 - Значения — **только пользовательский текст**.
 - Словари должны быть **симметричными**: одинаковый набор ключей в RU и EN.
+- Параметризация — только через `str.format` с **именованными** параметрами: `{path}`, `{count}`, `{mode}` и т.д.
 
 Рекомендуемая структура ключей:
 
@@ -60,6 +62,11 @@
 
 ## 4) Helper `t(key, **kwargs)` — контракт
 
+Расположение (норма проекта):
+
+- реализация: `app/i18n/core.py`
+- публичный импорт: `from app.i18n import t` (реэкспорт из `app/i18n/__init__.py`)
+
 UI использует единый helper:
 
 - `t(key: str, **kwargs) -> str`
@@ -73,6 +80,54 @@ UI использует единый helper:
 Опционально (желательно для качества):
 
 - В dev режиме собирать missing keys в список и показывать в debug‑панели.
+
+## 5) Обязательные строки (минимальный набор ключей)
+
+Этот список — **минимум**, который должен существовать в обоих словарях. Фактический “полный” список = все ключи, используемые в коде через `t("...")` (проверяется тестом).
+
+### 5.1) App + Sidebar
+
+- `app.title`
+- `sidebar.db_path`
+- `sidebar.access_mode`
+- `sidebar.language`
+- `sidebar.lang_ru`
+- `sidebar.lang_en`
+- `sidebar.active_panel`
+- `sidebar.navigation`
+- `sidebar.none`
+
+### 5.2) Навигация (страницы)
+
+- `nav.db_connect`
+- `nav.overview`
+- `nav.wizard`
+- `nav.panels`
+- `nav.rtm`
+- `nav.calculate`
+- `nav.feed_roles`
+- `nav.consumers_feeds`
+- `nav.mode_rules`
+- `nav.sections_summary`
+- `nav.export`
+
+### 5.3) Режим доступа UI
+
+- `access_mode.read_only`
+- `access_mode.edit`
+- `access_mode.confirm_edit`
+
+### 5.4) Статусы актуальности
+
+- `status.ok`
+- `status.stale`
+- `status.no_calc`
+- `status.unknown`
+
+### 5.5) Режимы расчёта (Feeds v2)
+
+- `mode.normal`
+- `mode.emergency`
 
 ## 5) Что считается “пользовательской строкой”
 

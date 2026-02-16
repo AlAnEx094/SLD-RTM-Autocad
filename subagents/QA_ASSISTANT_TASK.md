@@ -1,82 +1,54 @@
-# QA_ASSISTANT TASK — Feeds v2 migration + section_calc v2 tests
+# QA_ASSISTANT TASK — i18n RU/EN UI coverage tests
 
 ROLE: QA_ASSISTANT  
-BRANCH: `feature/feeds-v2-qa` (создавай изменения и коммиты только здесь)  
+BRANCH: `feature/i18n-qa` (создавай изменения и коммиты только здесь)  
 SCOPE (разрешено менять): `tests/*`  
 SCOPE (запрещено менять): `db/*`, `calc_core/*`, `tools/*`, `app/*`, `docs/*`, `dwg/*`
 
 ## Контекст
 
-Sprint вводит:
+Нужно гарантировать, что i18n подключён и не деградирует:
 
-- Feeds v2 schema (roles/modes/rules/priority)
-- Feeds v2 calc (section_calc агрегируется по mode NORMAL/EMERGENCY)
-
-Твоя задача — high-signal тесты на миграцию и корректность агрегации.
+- UI должен импортироваться/компилироваться (smoke)
+- RU/EN словари должны быть симметричны
+- все ключи, используемые в UI через `t("...")`, должны существовать и в `ru.json`, и в `en.json`
 
 Источник требований:
 
-- `docs/ui/FEEDS_V2_SPEC.md`
-- `docs/contracts/SECTION_AGG_V2.md` (будет добавлен calc-инженером)
+- `docs/ui/I18N_SPEC.md`
 
 ## Что нужно сделать (обязательно)
 
-### 1) Тест миграции Feeds v2 (обязательно)
+### 1) Smoke test: импорт/компиляция UI (обязательно)
 
-Добавить тест (например `tests/test_feeds_v2_migration.py`), который:
+- Добавить тест (например `tests/test_i18n_ui_smoke.py`), который:
+  - делает `compileall.compile_file("app/streamlit_app.py", quiet=1)` **или** просто импортирует модуль (без запуска `main()`)
+  - проверяет, что импорт проходит без исключений
 
-- создаёт tmp SQLite
-- накатывает миграции последовательно (как в остальных тестах проекта)
-- проверяет:
-  - seeded `feed_roles` содержит коды: MAIN, RESERVE, DG, DC, UPS
-  - seeded `modes` содержит коды: NORMAL, EMERGENCY
+### 2) Тест симметрии словарей RU/EN (обязательно)
 
-И отдельно проверить backward mapping:
+- Добавить тест (например `tests/test_i18n_dictionaries.py`), который:
+  - читает `app/i18n/ru.json` и `app/i18n/en.json`
+  - проверяет, что множества ключей **равны**
+  - проверяет наличие минимального набора ключей из `docs/ui/I18N_SPEC.md` (например `sidebar.db_path`, `sidebar.language`, `nav.db_connect`, …)
 
-- создать минимальную v1 структуру consumer_feeds с `feed_role='NORMAL'/'RESERVE'` (или создать через старые миграции и вставки),
-- прогнать новую миграцию v2,
-- убедиться, что:
-  - `consumer_feeds.feed_role_id` заполнен
-  - `NORMAL` замапплен в роль `MAIN`
-  - `RESERVE` замапплен в роль `RESERVE`
+### 3) Тест покрытия ключей, используемых в UI (обязательно)
 
-### 2) Тест section_calc v2 (обязательно)
-
-Добавить тест (например `tests/test_section_aggregation_v2.py`), который проверяет сценарий:
-
-- consumer с двумя вводами:
-  - MAIN → S1
-  - RESERVE → S2
-- mode=NORMAL ⇒ нагрузка только в S1
-- mode=EMERGENCY ⇒ нагрузка только в S2
-
-Требования к setup:
-
-- загрузка consumer нагрузки:
-  - можно использовать `MANUAL` (p/q/s/i) для изоляции теста
-- mode rules:
-  - либо вставить `consumer_mode_rules` явно
-  - либо полагаться на default‑логику calc (если так реализовано) — но тогда тест должен явно это проверять
-
-### 3) Обновить/починить существующие тесты, которые используют RESERVE (обязательно)
-
-Проект сейчас имеет тесты, завязанные на `mode='RESERVE'` и `--sections-mode` choices.
-После v2:
-
-- `section_calc.mode` должен быть `NORMAL/EMERGENCY`
-- CLI `--sections-mode` должен быть `NORMAL/EMERGENCY`
-
-Требование: `pytest -q` зелёный.
+- Добавить тест (например `tests/test_i18n_ui_keys_exist.py`), который:
+  - сканирует Python-файлы UI: `app/streamlit_app.py` и `app/views/*.py`
+  - извлекает ключи из вызовов вида `t("some.key")` и `t('some.key')`
+  - проверяет, что каждый найденный ключ есть и в `ru.json`, и в `en.json`
+  - (доп.) проверяет, что в UI нет “сырого” пользовательского текста для sidebar/nav (минимальный sanity-check)
 
 ## Acceptance criteria
 
-- Добавлены тесты миграции и section_calc v2.
+- Добавлены i18n smoke + dictionary symmetry + key coverage тесты.
 - Все тесты проходят (`pytest -q`).
 
 ## Git workflow (обязательно)
 
-1) `git checkout -b feature/feeds-v2-qa` (или `git checkout feature/feeds-v2-qa`)
+1) `git checkout -b feature/i18n-qa` (или `git checkout feature/i18n-qa`)
 2) Правки только в `tests/*`
 3) `git add tests`
-4) `git commit -m "test: add feeds v2 migration and aggregation coverage"`
+4) `git commit -m "test: add i18n UI smoke and dictionary coverage"`
 
