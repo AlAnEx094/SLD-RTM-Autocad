@@ -1,9 +1,8 @@
 -- schema.sql
--- Агрегированный слепок схемы (MVP-0.3 +0004).
+-- Агрегированный слепок схемы (MVP-0.3 + Feeds v2).
 -- Источник истины для эволюции схемы — миграции в db/migrations/.
 --
--- На MVP-0.3 схема == db/migrations/0001_init.sql + db/migrations/0002_circuits.sql + db/migrations/0003_bus_and_feeds.sql + db/migrations/0004_section_calc.sql
--- (вставлено вручную, без магии).
+-- Схема: 0001..0004 + 0005_feeds_v2_refs + 0006_section_calc_mode_emergency
 
 PRAGMA foreign_keys = ON;
 
@@ -49,22 +48,50 @@ CREATE TABLE IF NOT EXISTS consumers (
 
 CREATE INDEX IF NOT EXISTS idx_consumers_panel_id ON consumers(panel_id);
 
--- Питания потребителей (NORMAL/RESERVE), привязка к секциям шин
+-- Справочник ролей вводов (Feeds v2)
+CREATE TABLE IF NOT EXISTS feed_roles (
+  id TEXT PRIMARY KEY,
+  code TEXT UNIQUE NOT NULL,
+  title_ru TEXT,
+  title_en TEXT,
+  is_default INT NOT NULL DEFAULT 0
+);
+
+-- Справочник режимов расчёта (Feeds v2)
+CREATE TABLE IF NOT EXISTS modes (
+  id TEXT PRIMARY KEY,
+  code TEXT UNIQUE NOT NULL
+);
+
+-- Питания потребителей (v2: feed_role_id + priority; feed_role deprecated)
 CREATE TABLE IF NOT EXISTS consumer_feeds (
   id TEXT PRIMARY KEY,
   consumer_id TEXT NOT NULL REFERENCES consumers(id) ON DELETE CASCADE,
   bus_section_id TEXT NOT NULL REFERENCES bus_sections(id) ON DELETE CASCADE,
-  feed_role TEXT NOT NULL CHECK (feed_role IN ('NORMAL', 'RESERVE'))
+  feed_role TEXT CHECK (feed_role IN ('NORMAL', 'RESERVE')),
+  feed_role_id TEXT REFERENCES feed_roles(id),
+  priority INT NOT NULL DEFAULT 1
 );
 
 CREATE INDEX IF NOT EXISTS idx_consumer_feeds_consumer_id ON consumer_feeds(consumer_id);
 CREATE INDEX IF NOT EXISTS idx_consumer_feeds_bus_section_id ON consumer_feeds(bus_section_id);
 
--- Расчёт по секциям шин (NORMAL/RESERVE)
+-- Правила выбора активной роли по режиму (Feeds v2)
+CREATE TABLE IF NOT EXISTS consumer_mode_rules (
+  consumer_id TEXT NOT NULL REFERENCES consumers(id) ON DELETE CASCADE,
+  mode_id TEXT NOT NULL REFERENCES modes(id),
+  active_feed_role_id TEXT NOT NULL REFERENCES feed_roles(id),
+  PRIMARY KEY (consumer_id, mode_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_consumer_mode_rules_consumer_id ON consumer_mode_rules(consumer_id);
+CREATE INDEX IF NOT EXISTS idx_consumer_mode_rules_mode_id ON consumer_mode_rules(mode_id);
+
+-- Расчёт по секциям шин (v2: NORMAL/EMERGENCY)
 CREATE TABLE IF NOT EXISTS section_calc (
   panel_id TEXT NOT NULL REFERENCES panels(id) ON DELETE CASCADE,
   bus_section_id TEXT NOT NULL REFERENCES bus_sections(id) ON DELETE CASCADE,
-  mode TEXT NOT NULL CHECK(mode IN ('NORMAL','RESERVE')),
+  mode TEXT NOT NULL CHECK(mode IN ('NORMAL','EMERGENCY')),
   p_kw REAL NOT NULL,
   q_kvar REAL NOT NULL,
   s_kva REAL NOT NULL,
