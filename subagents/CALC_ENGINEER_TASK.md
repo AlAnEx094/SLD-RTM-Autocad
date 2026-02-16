@@ -1,85 +1,84 @@
-# CALC_ENGINEER TASK — Feeds v2 section aggregation (mode NORMAL/EMERGENCY)
+# CALC_ENGINEER TASK — Phase Balance v0.1 (greedy by i_calc_a)
 
 ROLE: CALC_ENGINEER  
-BRANCH: `feature/feeds-v2-calc` (создавай изменения и коммиты только здесь)  
-SCOPE (разрешено менять): `calc_core/*`, `tools/*`, `docs/contracts/SECTION_AGG_V2.md`  
-SCOPE (запрещено менять): `db/*`, `tests/*`, `app/*`, `dwg/*`
+BRANCH: `feature/phase-balance-calc` (создавай изменения и коммиты только здесь)  
+SCOPE (разрешено менять): `calc_core/*`, `tools/*`, `dwg/*`  
+SCOPE (запрещено менять): `db/*`, `tests/*`, `app/*`
 
-## Контекст
+## Источник требований
 
-Feeds v2 исправляет модель:
+- `docs/contracts/PHASE_BALANCE_V0_1.md`
 
-- `feed_role` = роль ввода (MAIN/RESERVE/DG/DC/UPS)
-- `mode` = режим расчёта (NORMAL/EMERGENCY)
+## Предпосылки (в main после DB merge)
 
-DB изменения приходят из ветки `feature/feeds-v2-db` и включают:
+DB уже содержит:
 
-- `feed_roles`, `modes`
-- `consumer_feeds.feed_role_id`, `consumer_feeds.priority`
-- `consumer_mode_rules(consumer_id, mode_id, active_feed_role_id)`
-- `section_calc.mode` ∈ {NORMAL, EMERGENCY}
+- `circuits.phase` (L1/L2/L3)
+- `panel_phase_balance(panel_id, mode, i_l1, i_l2, i_l3, unbalance_pct, updated_at)`
 
-Источник требований:
+## Цель (обязательно)
 
-- `docs/ui/FEEDS_V2_SPEC.md` — норматив по сущностям/алгоритму
+### 1) Реализовать алгоритм в `calc_core/phase_balance.py`
 
-## Цель
+Добавить модуль:
 
-### 1) Обновить `calc_core/section_aggregation.py` (обязательно)
+- `calc_core/phase_balance.py`
 
-Требование: пересчитать секции по **активному вводу** в зависимости от `mode`.
+API (рекомендуемое, но можно эквивалентно):
 
-Алгоритм (норматив, см. SPEC):
+- `balance_panel(conn: sqlite3.Connection, panel_id: str, *, mode: str = "NORMAL") -> dict`
 
-Для каждого consumer:
+Норматив:
 
-1) определить `active_role` для (consumer, mode):
-   - из `consumer_mode_rules`
-   - если нет — default: NORMAL→MAIN, EMERGENCY→RESERVE
-2) выбрать feed из `consumer_feeds` с `feed_role_id=active_role`:
-   - если несколько — выбрать `min(priority)`
-3) определить `bus_section_id` выбранного feed
-4) получить нагрузку consumer:
-   - `RTM_PANEL` → из `rtm_panel_calc` по `load_ref_id`
-   - `MANUAL` → из `consumers` (p/q/s/i)
-5) агрегировать в `section_calc` по `(panel_id, bus_section_id, mode)`
+- взять 1Ф цепи `circuits.phases = 1` для `panel_id`
+- ток цепи \(I\): предпочесть `circuit_calc.i_calc_a` если есть, иначе `circuits.i_calc_a`
+- greedy bin-packing:
+  - сортировка по `I` по убыванию (tie-breaker: `circuits.id`)
+  - назначать фазу с минимальной суммой
+- записать назначения в `circuits.phase`
+- записать агрегат в `panel_phase_balance` (upsert по `(panel_id, mode)`), `updated_at=datetime('now')`
+- `unbalance_pct` по формуле из контракта
 
-Fallbacks (обязательное поведение):
+### 2) Расширить CLI `tools/run_calc.py`
 
-- если нет feeds для выбранной `active_role`:
-  - сделать разумный fallback (описать и зафиксировать в `SECTION_AGG_V2.md`)
-  - если feeds отсутствуют — consumer пропустить с warning
+Добавить флаги:
+
+- `--calc-phase-balance` (bool): выполнить балансировку фаз
+- `--pb-mode NORMAL|EMERGENCY` (default: NORMAL): режим записи в `panel_phase_balance`
+
+CLI должен:
+
+- применять миграции (как сейчас)
+- запускать фазную балансировку без зависимости от UI
+
+### 3) Экспорт: phase в JSON payload + CSV attrs mapping
+
+#### A) JSON payload
+
+В `calc_core/export_payload.py` добавить в `payload.circuits[]` поле:
+
+- `phase`: `"L1"|"L2"|"L3"|null`
+
+#### B) CSV attrs mapping
+
+Обновить `dwg/mapping_v0_5.yaml` (или актуальный mapping проекта), чтобы в `circuits.attributes` появился атрибут,
+указывающий на путь `phase`.
 
 Важно:
 
-- поддержка 2+ и 3+ вводов через `priority`
-- детерминизм выбора (min priority)
-
-### 2) Обновить CLI `tools/run_calc.py` (обязательно)
-
-- `--calc-sections --sections-mode NORMAL|EMERGENCY`
-- оставить DEPRECATED alias `--mode` (как сейчас), но принимать значения NORMAL|EMERGENCY
-- help‑текст обновить: это **режим расчёта секций**, не “роль ввода”
-
-### 3) Документировать контракт расчёта (обязательно)
-
-Создать/обновить `docs/contracts/SECTION_AGG_V2.md`:
-
-- входные таблицы
-- правила выбора активного ввода
-- fallback логика
-- формат результата в `section_calc` (mode = NORMAL/EMERGENCY)
+- экспорт **не запускает расчёты**; он только читает БД
+- если `circuits.phase` NULL → в CSV/JSON это должно становиться пустой строкой / `null`
 
 ## Acceptance criteria
 
-- `calc_core.section_aggregation` корректно пишет/возвращает агрегаты для mode NORMAL и EMERGENCY.
-- `tools/run_calc.py` принимает `--sections-mode NORMAL|EMERGENCY` и имеет deprecated alias `--mode`.
-- Поведение задокументировано в `docs/contracts/SECTION_AGG_V2.md`.
+- `tools/run_calc.py --calc-phase-balance --pb-mode NORMAL` записывает `circuits.phase` и `panel_phase_balance`.
+- Экспорт JSON/CSV включает `phase` для цепей.
+- `pytest -q` остаётся зелёным (тесты добавит QA).
 
 ## Git workflow (обязательно)
 
-1) `git checkout -b feature/feeds-v2-calc` (или `git checkout feature/feeds-v2-calc`)
-2) Правки только в `calc_core/*`, `tools/*`, `docs/contracts/SECTION_AGG_V2.md`
-3) `git add calc_core tools docs/contracts/SECTION_AGG_V2.md`
-4) `git commit -m "calc: implement feeds v2 section aggregation"`
+1) `git checkout -b feature/phase-balance-calc` (или `git checkout feature/phase-balance-calc`)
+2) Правки только в `calc_core/*`, `tools/*`, `dwg/*`
+3) `git add calc_core tools dwg`
+4) `git commit -m "calc: add phase balance for 1PH circuits"`
 

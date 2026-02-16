@@ -1,126 +1,82 @@
-# UI_IMPLEMENTER TASK — i18n RU/EN + Feeds v2 pages (Streamlit UI)
+# UI_IMPLEMENTER TASK — Phase Balance v0.1 (Streamlit UI + i18n)
 
 ROLE: UI_IMPLEMENTER  
-BRANCHES:
-- `feature/i18n-ui` (сделай коммиты только про i18n здесь)
-- `feature/feeds-v2-ui` (после DB+Calc merge в main, сделать UI для Feeds v2 здесь)
+BRANCH: `feature/phase-balance-ui` (создавай изменения и коммиты только здесь)  
 
 SCOPE (разрешено менять): `app/*`  
-SCOPE (запрещено менять): `db/*`, `calc_core/*`, `tools/*`, `tests/*`, `dwg/*`
+SCOPE (запрещено менять): `db/*`, `calc_core/*`, `tools/*`, `tests/*`, `dwg/*`, `docs/*`
 
 ## Источник требований
 
-- `docs/ui/I18N_SPEC.md` — i18n контракт (ключи, helper `t()`, RU default)
-- `docs/ui/FEEDS_V2_SPEC.md` — термины и UI/DB/Calc контракт Feeds v2
-- `docs/ui/STREAMLIT_UI_SPEC.md` — общий UX контракт (stale badges, read-only по умолчанию, и т.п.)
+- `docs/contracts/PHASE_BALANCE_V0_1.md`
+- `docs/ui/I18N_SPEC.md` (non-negotiable: все строки через `t()`, RU/EN)
 
-## Цель A — i18n (G1) в ветке `feature/i18n-ui`
+## Предпосылки (в main после DB+Calc merge)
 
-### A1) Sidebar language selector (обязательно)
+В БД присутствуют:
 
-- Добавить selector: **Русский / English**
-- RU default
-- хранить выбор в `st.session_state["lang"]` (коды: `"RU"`/`"EN"`)
-- отображаемые подписи брать из словаря: `t("sidebar.lang_ru")`, `t("sidebar.lang_en")`
+- `circuits.phase` (`L1/L2/L3`)
+- `panel_phase_balance(panel_id, mode, i_l1, i_l2, i_l3, unbalance_pct, updated_at)`
 
-### A2) Вынести все пользовательские строки в JSON (обязательно)
+В `calc_core` присутствует:
 
-- использовать `app/i18n/ru.json` и `app/i18n/en.json`
-- вынести/заменить **все** UI строки (non-negotiable):
-  - сайдбар, навигация, названия страниц
-  - кнопки, подсказки, ошибки, предупреждения
-  - статусы: `OK/STALE/NO_CALC/UNKNOWN`, режим доступа `READ_ONLY/EDIT`
-- ключи **стабильные**, без дублей; RU/EN словари **симметричны** (одинаковый набор ключей)
+- `calc_core.phase_balance.balance_panel(...)` (или эквивалентный API) и CLI флаг в `tools/run_calc.py`
 
-### A3) Helper `t(key, **kwargs)` (обязательно)
+## Цель (обязательно)
 
-- добавить `app/i18n/core.py`:
-  - `load_lang(lang: str) -> dict[str, str]` (кэшировать чтение JSON)
-  - `t(key: str, **kwargs) -> str` (как в SPEC)
-- `app/i18n/__init__.py` должен реэкспортировать `t` (и при необходимости `load_lang`)
-- `t(key, **kwargs)` должен:
-  - выбирать словарь по `session_state["lang"]`
-  - поддерживать `.format(**kwargs)`
-  - fallback: если ключа нет — показывать ключ/маркер, не падать
+### 1) Кнопка запуска “Балансировка фаз”
 
-### A4) Термины (обязательно)
+Добавить UI действие (рекомендуемое место: `app/views/calculate.py`, рядом с RTM/DU/SECTIONS):
 
-Использовать единый глоссарий из SPEC (feed=ввод, mode=режим расчёта, feed_role=роль ввода, bus section=секция шин, panel=щит).
+- кнопка **“Балансировка фаз”**
+- доступна только в `EDIT` (как и другие расчёты)
+- вызывает фазную балансировку (через `calc_core.phase_balance` или через CLI-обёртку) и обновляет состояние (rerun)
 
-### A5) Замена строк в UI коде (обязательно)
+### 2) Таблица цепей с фазой
 
-- заменить ВСЕ пользовательские строки в:
-  - `app/streamlit_app.py`
-  - `app/views/*.py`
-  - (если есть дубликат UI кода в соседней папке/копии проекта — править **тот**, который реально используется при `streamlit run` и `pytest -q`)
-- локализовать:
-  - навигацию
-  - режимы доступа (READ_ONLY/EDIT)
-  - статусы (OK/STALE/NO_CALC/UNKNOWN) — **как подписи**, не как данные/коды
+Отображение:
 
-## Цель B — Feeds v2 UI (G2 UI) в ветке `feature/feeds-v2-ui`
+- таблица `circuits` для выбранного щита
+- колонка `phase`:
+  - для 1Ф цепей (`phases=1`) показывать `L1/L2/L3` (или пусто, если NULL)
+  - для 3Ф цепей (`phases=3`) показывать `—`/пусто и сделать read-only
 
-> Важно: начинать после того, как ветки `feature/feeds-v2-db` и `feature/feeds-v2-calc` вмержены в `main`, чтобы UI опирался на новую схему/поведение.
+Редактирование (только `EDIT`):
 
-### B1) Страницы / экраны (обязательно)
+- дать возможность вручную менять `circuits.phase` для 1Ф цепей
+- валидировать допустимые значения: `L1|L2|L3|empty`
+- запись только в БД (DB = truth)
 
-Добавить UI страницы:
+### 3) Итоги баланса по фазам + неравномерность
 
-- **Feed Roles** (справочник ролей)
-  - просмотр всегда
-  - редактирование `title_ru/title_en` (если реализуешь) — только в `EDIT`
-  - `code` — read‑only
+Показывать:
 
-- **Consumers + Feeds**
-  - consumer: имя, `load_ref_type` (RTM_PANEL/MANUAL), источник нагрузки
-  - feeds: N строк на consumer:
-    - bus_section
-    - роль ввода (из `feed_roles`)
-    - priority
-  - готовность к 3+ вводам: нет UX ограничений “строго 2”
+- `I(L1)`, `I(L2)`, `I(L3)` (А)
+- `unbalance_pct` (%)
+- `updated_at`
 
-- **Mode Rules**
-  - для каждого consumer выбрать:
-    - активную роль для `NORMAL`
-    - активную роль для `EMERGENCY`
+Источник истины:
 
-- **Sections / Summary**
-  - показывать `section_calc` **раздельно** для NORMAL и EMERGENCY
+- читать из `panel_phase_balance` (по `mode=NORMAL` в v0.1, если UI не даёт выбора mode)
 
-### B2) Поведение по умолчанию (обязательно)
+### 4) i18n compliance (non-negotiable)
 
-- если для consumer отсутствуют записи `consumer_mode_rules`, UI должен:
-  - предложить/создать default (NORMAL→MAIN, EMERGENCY→RESERVE) в `EDIT` (best-effort)
-- отображаемые подписи роли ввода брать из `feed_roles.title_ru/title_en`
+Все новые строки UI и подписи:
 
-### B3) Локализация (обязательно)
-
-Все новые страницы и поля — через i18n (`t()`), включая:
-
-- кнопки add/edit/delete
-- сообщения валидации
-- подсказки по priority / fallback
+- добавить ключи в `app/i18n/ru.json` и `app/i18n/en.json`
+- использовать `t("...")` в UI
+- не добавлять хардкод строк
 
 ## Acceptance criteria
 
-- `pytest -q` остаётся зелёным (без правок тестов).
-- RU/EN переключение работает; RU default.
-- В коде UI нет жёстко прошитых пользовательских строк.
-- Страницы Feeds v2 присутствуют и работают в READ_ONLY/EDIT режимах.
+- Кнопка “Балансировка фаз” видна и работает (обновляет `circuits.phase` и `panel_phase_balance`).
+- Таблица цепей показывает/даёт редактировать фазу (в `EDIT`).
+- Итоги по фазам + `unbalance_pct` отображаются из БД.
+- `pytest -q` остаётся зелёным.
 
 ## Git workflow (обязательно)
 
-### Для i18n
-
-1) `git checkout -b feature/i18n-ui` (или `git checkout feature/i18n-ui`)
+1) `git checkout -b feature/phase-balance-ui` (или `git checkout feature/phase-balance-ui`)
 2) Правки только в `app/*`
 3) `git add app`
-4) `git commit -m "ui: add RU/EN i18n"`
-
-### Для Feeds v2 UI
-
-1) после merge DB+Calc в main: `git checkout main && git pull`
-2) `git checkout -b feature/feeds-v2-ui` (или `git checkout feature/feeds-v2-ui`)
-3) Правки только в `app/*`
-4) `git add app`
-5) `git commit -m "ui: add feeds v2 pages"`
+4) `git commit -m "ui: add phase balance controls"`

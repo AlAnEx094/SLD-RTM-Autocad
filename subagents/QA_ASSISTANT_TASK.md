@@ -1,54 +1,66 @@
-# QA_ASSISTANT TASK — i18n RU/EN UI coverage tests
+# QA_ASSISTANT TASK — Phase Balance v0.1 (tests)
 
 ROLE: QA_ASSISTANT  
-BRANCH: `feature/i18n-qa` (создавай изменения и коммиты только здесь)  
+BRANCH: `feature/phase-balance-qa` (создавай изменения и коммиты только здесь)  
 SCOPE (разрешено менять): `tests/*`  
 SCOPE (запрещено менять): `db/*`, `calc_core/*`, `tools/*`, `app/*`, `docs/*`, `dwg/*`
 
-## Контекст
+## Источник требований
 
-Нужно гарантировать, что i18n подключён и не деградирует:
+- `docs/contracts/PHASE_BALANCE_V0_1.md`
 
-- UI должен импортироваться/компилироваться (smoke)
-- RU/EN словари должны быть симметричны
-- все ключи, используемые в UI через `t("...")`, должны существовать и в `ru.json`, и в `en.json`
+## Предпосылки (после merge db+calc+ui в main)
 
-Источник требований:
-
-- `docs/ui/I18N_SPEC.md`
+- В БД есть `circuits.phase` и `panel_phase_balance`
+- В `calc_core` есть `phase_balance` и экспорт включает `phase`
+- UI добавляет кнопки/таблицы (не тестируем UI напрямую, только smoke/инварианты)
 
 ## Что нужно сделать (обязательно)
 
-### 1) Smoke test: импорт/компиляция UI (обязательно)
+### 1) Тест алгоритма балансировки (обязательно)
 
-- Добавить тест (например `tests/test_i18n_ui_smoke.py`), который:
-  - делает `compileall.compile_file("app/streamlit_app.py", quiet=1)` **или** просто импортирует модуль (без запуска `main()`)
-  - проверяет, что импорт проходит без исключений
+Добавить тест (например `tests/test_phase_balance_algorithm.py`), который:
 
-### 2) Тест симметрии словарей RU/EN (обязательно)
+- создаёт временную SQLite БД (tmp file)
+- накатывает миграции через `tools.run_calc.ensure_migrations`
+- вставляет:
+  - `panels` (system_type может быть 1PH или 3PH — не критично)
+  - несколько `circuits` с `phases=1` и разными `i_calc_a`
+- вызывает `calc_core.phase_balance.balance_panel(...)`
+- проверяет:
+  - у всех 1Ф цепей `circuits.phase IN ('L1','L2','L3')`
+  - `panel_phase_balance` создан и содержит численные `i_l1/i_l2/i_l3/unbalance_pct`
+  - детерминизм: повторный вызов при неизменном входе не меняет результат (или меняет только `updated_at`)
 
-- Добавить тест (например `tests/test_i18n_dictionaries.py`), который:
-  - читает `app/i18n/ru.json` и `app/i18n/en.json`
-  - проверяет, что множества ключей **равны**
-  - проверяет наличие минимального набора ключей из `docs/ui/I18N_SPEC.md` (например `sidebar.db_path`, `sidebar.language`, `nav.db_connect`, …)
+### 2) Тест DB constraint (обязательно)
 
-### 3) Тест покрытия ключей, используемых в UI (обязательно)
+Добавить тест (например `tests/test_phase_balance_db_constraints.py`), который:
 
-- Добавить тест (например `tests/test_i18n_ui_keys_exist.py`), который:
-  - сканирует Python-файлы UI: `app/streamlit_app.py` и `app/views/*.py`
-  - извлекает ключи из вызовов вида `t("some.key")` и `t('some.key')`
-  - проверяет, что каждый найденный ключ есть и в `ru.json`, и в `en.json`
-  - (доп.) проверяет, что в UI нет “сырого” пользовательского текста для sidebar/nav (минимальный sanity-check)
+- пытается установить `circuits.phase='L4'` и ожидает `sqlite3.IntegrityError`
+- пытается вставить `panel_phase_balance.mode='RESERVE'` и ожидает `sqlite3.IntegrityError`
+
+### 3) Тест экспорта phase (обязательно)
+
+Добавить тест (например `tests/test_phase_balance_export.py`), который:
+
+- создаёт tmp SQLite
+- накатывает миграции
+- вставляет минимум данных, необходимых для `calc_core.export_payload.build_payload`:
+  - `panels`
+  - `rtm_panel_calc` (обязателен для payload)
+  - хотя бы одну 1Ф цепь `circuits` с `phase='L2'`
+- вызывает `build_payload(conn, panel_id)`
+- проверяет, что `payload["circuits"][0]["phase"] == "L2"`
 
 ## Acceptance criteria
 
-- Добавлены i18n smoke + dictionary symmetry + key coverage тесты.
-- Все тесты проходят (`pytest -q`).
+- `pytest -q` зелёный.
+- Добавлены тесты: алгоритм + ограничения БД + экспорт phase.
 
 ## Git workflow (обязательно)
 
-1) `git checkout -b feature/i18n-qa` (или `git checkout feature/i18n-qa`)
+1) `git checkout -b feature/phase-balance-qa` (или `git checkout feature/phase-balance-qa`)
 2) Правки только в `tests/*`
 3) `git add tests`
-4) `git commit -m "test: add i18n UI smoke and dictionary coverage"`
+4) `git commit -m "test: add phase balance coverage"`
 
