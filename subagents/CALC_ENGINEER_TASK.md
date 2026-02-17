@@ -1,7 +1,7 @@
-# CALC_ENGINEER TASK — Phase Balance v0.1.1 (respect MANUAL)
+# CALC_ENGINEER TASK — MVP-BAL v0.1.2 (invalid MANUAL warnings)
 
 ROLE: CALC_ENGINEER  
-BRANCH: `feature/phase-source-calc` (создавай изменения и коммиты только здесь)  
+BRANCH: `feature/pb-warn-calc` (создавай изменения и коммиты только здесь)  
 SCOPE (разрешено менять): `calc_core/*`, `tools/*`, `dwg/*`  
 SCOPE (запрещено менять): `db/*`, `tests/*`, `app/*`
 
@@ -15,11 +15,11 @@ DB уже содержит:
 
 - `circuits.phase` (L1/L2/L3)
 - `circuits.phase_source` (AUTO/MANUAL)
-- `panel_phase_balance(panel_id, mode, i_l1, i_l2, i_l3, unbalance_pct, updated_at)`
+- `panel_phase_balance(panel_id, mode, i_l1, i_l2, i_l3, unbalance_pct, updated_at, invalid_manual_count, warnings_json)`
 
 ## Цель (обязательно)
 
-### 1) Обновить алгоритм в `calc_core/phase_balance.py`
+### 1) Обновить алгоритм в `calc_core/phase_balance.py` (обязательно)
 
 Добавить модуль:
 
@@ -36,21 +36,27 @@ API (норма, но можно эквивалентно):
 - если `respect_manual=True`:
   - исключить из переназначения цепи `circuits.phase_source='MANUAL'`
   - сохранить их текущую `circuits.phase`
-  - учесть их ток в суммах фаз, если фаза валидна (`L1|L2|L3`)
+  - если `phase` невалиден (`NULL` или не `L1|L2|L3`):
+    - НЕ включать ток в суммы
+    - увеличивать `invalid_manual_count`
+    - добавлять warning-объект в список `warnings_json`
 - greedy bin-packing для остальных:
   - сортировка по `I` по убыванию (tie-breaker: `circuits.id`)
   - назначать фазу с минимальной суммой
 - записать назначения в `circuits.phase`
 - записать агрегат в `panel_phase_balance` (upsert по `(panel_id, mode)`), `updated_at=datetime('now')`
 - `unbalance_pct` по формуле из контракта
+- persist:
+  - `invalid_manual_count`
+  - `warnings_json` (JSON array)
 
-### 2) Расширить CLI `tools/run_calc.py`
+### 2) CLI `tools/run_calc.py` (без новых флагов)
 
 Добавить флаги:
 
 - `--calc-phase-balance` (bool): выполнить балансировку фаз
 - `--pb-mode NORMAL|EMERGENCY` (default: NORMAL): режим записи в `panel_phase_balance`
-- флаг для отключения защиты manual фаз (например `--no-respect-manual-phases`), который передаёт `respect_manual=False`
+- флаги остаются как в v0.1.1 (`--no-respect-manual-phases` уже есть); новых не добавлять без необходимости
 
 CLI должен:
 
@@ -65,6 +71,7 @@ CLI должен:
 
 - `phase`: `"L1"|"L2"|"L3"|null`
 - `phase_source`: `"AUTO"|"MANUAL"|null` (если колонка существует)
+- (опционально) `warnings` не экспортируем в payload v0.4 (UI читает из БД)
 
 #### B) CSV attrs mapping
 
@@ -84,8 +91,8 @@ CLI должен:
 
 ## Git workflow (обязательно)
 
-1) `git checkout -b feature/phase-source-calc` (или `git checkout feature/phase-source-calc`)
+1) `git checkout -b feature/pb-warn-calc` (или `git checkout feature/pb-warn-calc`)
 2) Правки только в `calc_core/*`, `tools/*`, `dwg/*`
 3) `git add calc_core tools dwg`
-4) `git commit -m "calc: respect MANUAL phase assignments"`
+4) `git commit -m "calc: persist invalid manual phase warnings"`
 

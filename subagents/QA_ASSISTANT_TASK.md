@@ -1,7 +1,7 @@
-# QA_ASSISTANT TASK — Phase Balance v0.1.1 (phase_source tests)
+# QA_ASSISTANT TASK — MVP-BAL v0.1.2 (warnings tests)
 
 ROLE: QA_ASSISTANT  
-BRANCH: `feature/phase-source-qa` (создавай изменения и коммиты только здесь)  
+BRANCH: `feature/pb-warn-qa` (создавай изменения и коммиты только здесь)  
 SCOPE (разрешено менять): `tests/*`  
 SCOPE (запрещено менять): `db/*`, `calc_core/*`, `tools/*`, `app/*`, `docs/*`, `dwg/*`
 
@@ -17,14 +17,16 @@ SCOPE (запрещено менять): `db/*`, `calc_core/*`, `tools/*`, `app/
 
 ## Что нужно сделать (обязательно)
 
-### 1) Тест respect_manual (обязательно)
+### 1) Тест invalid MANUAL phase warnings (обязательно)
 
-Добавить тест (например `tests/test_phase_balance_respect_manual.py`), который:
+Добавить тест (например `tests/test_phase_balance_warnings.py`), который:
 
-Сценарии:
-
-- `respect_manual=True` сохраняет фазы цепей с `phase_source='MANUAL'`
-- `respect_manual=False` допускает перезапись фаз (детерминированный кейс)
+- создаёт 1Ф цепь с `phase_source='MANUAL'` и невалидной `phase` (NULL/\"L4\")
+- запускает `calc_phase_balance(..., respect_manual=True)`
+- проверяет:
+  - `panel_phase_balance.invalid_manual_count > 0`
+  - `panel_phase_balance.warnings_json` не пуст
+  - суммы `i_l1/i_l2/i_l3` НЕ включают ток этой цепи
 
 ### 2) Тест DB constraint (обязательно)
 
@@ -50,12 +52,12 @@ SCOPE (запрещено менять): `db/*`, `calc_core/*`, `tools/*`, `app/
 ## Acceptance criteria
 
 - `pytest -q` зелёный.
-- Добавлены тесты: respect_manual true/false + ограничения БД + экспорт phase.
+- Добавлены тесты: invalid MANUAL warnings + ограничения БД + экспорт phase.
 
 ## Git workflow (обязательно)
 
-1) `git checkout -b feature/phase-source-qa` (или `git checkout feature/phase-source-qa`)
+1) `git checkout -b feature/pb-warn-qa` (или `git checkout feature/pb-warn-qa`)
 2) Правки только в `tests/*`
 3) `git add tests`
-4) `git commit -m "test: cover respect_manual phase balance"`
+4) `git commit -m "test: add phase balance warnings coverage"`
 

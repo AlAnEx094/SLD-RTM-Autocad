@@ -1,7 +1,7 @@
-# UI_IMPLEMENTER TASK — Phase Balance v0.1.1 (phase_source + protect MANUAL)
+# UI_IMPLEMENTER TASK — MVP-BAL v0.1.2 (warnings + UI highlight)
 
 ROLE: UI_IMPLEMENTER  
-BRANCH: `feature/phase-source-ui` (создавай изменения и коммиты только здесь)  
+BRANCH: `feature/pb-warn-ui` (создавай изменения и коммиты только здесь)  
 
 SCOPE (разрешено менять): `app/*`  
 SCOPE (запрещено менять): `db/*`, `calc_core/*`, `tools/*`, `tests/*`, `dwg/*`, `docs/*`
@@ -16,7 +16,7 @@ SCOPE (запрещено менять): `db/*`, `calc_core/*`, `tools/*`, `test
 В БД присутствуют:
 
 - `circuits.phase` (`L1/L2/L3`)
-- `panel_phase_balance(panel_id, mode, i_l1, i_l2, i_l3, unbalance_pct, updated_at)`
+- `panel_phase_balance(panel_id, mode, i_l1, i_l2, i_l3, unbalance_pct, updated_at, invalid_manual_count, warnings_json)`
 
 В `calc_core` присутствует:
 
@@ -36,6 +36,12 @@ SCOPE (запрещено менять): `db/*`, `calc_core/*`, `tools/*`, `test
   - EN: “Do not overwrite manually assigned phases”
   - передавать `respect_manual` в вызов расчёта
 
+### 1.1) Warning banner + details (обязательно)
+
+- если `panel_phase_balance.invalid_manual_count > 0`:
+  - показать persistent warning banner (i18n RU/EN)
+  - показать expandable список/таблицу offending circuits из `warnings_json`
+
 ### 2) Таблица цепей с фазой
 
 Отображение:
@@ -52,6 +58,9 @@ SCOPE (запрещено менять): `db/*`, `calc_core/*`, `tools/*`, `test
 - запись только в БД (DB = truth)
 - при ручном редактировании фазы выставлять `circuits.phase_source='MANUAL'`
 - показывать колонку `phase_source` в таблице (AUTO/MANUAL) с локализованными лейблами
+- добавить индикатор колонку (например `Status` или `⚠`) для цепей, где:
+  - `phase_source='MANUAL'` и `phase` пустой/невалидный
+  - индикатор и подписи — через i18n (`t(...)`), без хардкода
 
 ### 3) Итоги баланса по фазам + неравномерность
 
@@ -82,7 +91,7 @@ SCOPE (запрещено менять): `db/*`, `calc_core/*`, `tools/*`, `test
 
 ## Git workflow (обязательно)
 
-1) `git checkout -b feature/phase-source-ui` (или `git checkout feature/phase-source-ui`)
+1) `git checkout -b feature/pb-warn-ui` (или `git checkout feature/pb-warn-ui`)
 2) Правки только в `app/*`
 3) `git add app`
-4) `git commit -m "ui: protect manual phase assignments"`
+4) `git commit -m "ui: show phase balance warnings"`
