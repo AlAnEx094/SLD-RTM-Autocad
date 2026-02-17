@@ -154,6 +154,14 @@ def _render_phase_balance_section(conn, state: dict, panel_id: str, panel: dict)
     st.subheader(t("phase_balance.section"))
 
     is_edit = state.get("mode_effective") == "EDIT"
+    pb_mode = st.radio(
+        t("phase_balance.pb_mode"),
+        ["NORMAL", "EMERGENCY"],
+        format_func=lambda x: t("mode.normal") if x == "NORMAL" else t("mode.emergency"),
+        horizontal=True,
+        key="phase_balance_mode",
+    )
+    pb_mode_label = t("mode.normal") if pb_mode == "NORMAL" else t("mode.emergency")
     respect_manual = st.checkbox(
         t("phase_balance.respect_manual"),
         value=True,
@@ -169,7 +177,7 @@ def _render_phase_balance_section(conn, state: dict, panel_id: str, panel: dict)
                 pb_conn.row_factory = sqlite3.Row
                 pb_conn.execute("PRAGMA foreign_keys = ON;")
                 count = calc_phase_balance(
-                    pb_conn, panel_id, mode="NORMAL", respect_manual=respect_manual
+                    pb_conn, panel_id, mode=pb_mode, respect_manual=respect_manual
                 )
                 pb_conn.commit()
             finally:
@@ -179,9 +187,9 @@ def _render_phase_balance_section(conn, state: dict, panel_id: str, panel: dict)
         except Exception as exc:  # pragma: no cover - UI error path
             st.error(t("phase_balance.run_error", exc=exc))
 
-    balance = db.get_panel_phase_balance(conn, panel_id, mode="NORMAL")
+    balance = db.get_panel_phase_balance(conn, panel_id, mode=pb_mode)
     if balance:
-        st.caption(t("phase_balance.totals_caption"))
+        st.caption(t("phase_balance.totals_caption", mode=pb_mode_label))
         cols = st.columns(4)
         cols[0].metric(t("phase_balance.i_l1"), f"{float(balance['i_l1']):.2f} A")
         cols[1].metric(t("phase_balance.i_l2"), f"{float(balance['i_l2']):.2f} A")
@@ -191,22 +199,22 @@ def _render_phase_balance_section(conn, state: dict, panel_id: str, panel: dict)
         invalid_count = int(balance.get("invalid_manual_count") or 0) if isinstance(balance, dict) else 0
         if invalid_count > 0:
             st.warning(t("phase_balance.invalid_manual_banner", count=invalid_count))
-            with st.expander(
-                t("phase_balance.invalid_manual_expander", count=invalid_count),
-                expanded=False,
-            ):
-                raw = balance.get("warnings_json")
-                items: list[dict] = []
-                if raw:
-                    try:
-                        parsed = json.loads(str(raw))
-                        if isinstance(parsed, list):
-                            items = [x for x in parsed if isinstance(x, dict)]
-                    except Exception:
-                        items = []
-                if not items:
-                    st.caption(t("phase_balance.invalid_manual_no_details"))
-                else:
+            raw = balance.get("warnings_json")
+            items: list[dict] = []
+            if raw:
+                try:
+                    parsed = json.loads(str(raw))
+                    if isinstance(parsed, list):
+                        items = [x for x in parsed if isinstance(x, dict)]
+                except Exception:
+                    items = []
+            if not items:
+                st.caption(t("phase_balance.invalid_manual_no_details"))
+            else:
+                with st.expander(
+                    t("phase_balance.invalid_manual_expander", count=invalid_count),
+                    expanded=False,
+                ):
                     def _reason_label(code: object) -> str:
                         c = str(code or "").strip().upper()
                         if c == "MANUAL_INVALID_PHASE":
