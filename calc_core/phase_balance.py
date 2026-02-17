@@ -7,6 +7,7 @@ current unbalance. Per docs/contracts/PHASE_BALANCE_V0_1.md.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import datetime, timezone
 
@@ -27,7 +28,9 @@ def calc_phase_balance(
     Writes circuits.phase and upserts panel_phase_balance.
 
     When respect_manual=True: circuits with phase_source='MANUAL' are excluded from
-    reassignment; their existing phase is preserved and contributes to initial sums.
+    reassignment; their existing phase is preserved and contributes to initial sums
+    only when phase is valid (L1/L2/L3). Invalid MANUAL phases are excluded from sums
+    and persisted as warnings.
     When respect_manual=False: algorithm may overwrite any phase.
 
     Returns number of 1PH circuits processed.
@@ -44,10 +47,8 @@ def calc_phase_balance(
     conn.execute("PRAGMA foreign_keys = ON;")
 
     # Check if phase_source column exists (migration 0008)
-    has_phase_source = any(
-        r[1] == "phase_source"
-        for r in conn.execute("PRAGMA table_info(circuits)").fetchall()
-    )
+    circuits_cols = [r[1] for r in conn.execute("PRAGMA table_info(circuits)").fetchall()]
+    has_phase_source = "phase_source" in circuits_cols
 
     # 1) Select all 1PH circuits with I, phase, and optionally phase_source
     if not has_phase_source:
@@ -55,6 +56,7 @@ def calc_phase_balance(
             """
             SELECT
               c.id AS circuit_id,
+              c.name AS circuit_name,
               COALESCE(cc.i_calc_a, c.i_calc_a) AS i_a,
               NULL AS phase,
               NULL AS phase_source
@@ -69,6 +71,7 @@ def calc_phase_balance(
             """
             SELECT
               c.id AS circuit_id,
+              c.name AS circuit_name,
               COALESCE(cc.i_calc_a, c.i_calc_a) AS i_a,
               c.phase,
               c.phase_source
@@ -90,9 +93,12 @@ def calc_phase_balance(
     sum_l2 = 0.0
     sum_l3 = 0.0
     auto_circuits: list[tuple[str, float]] = []
+    invalid_manual_count = 0
+    warnings: list[dict[str, object]] = []
 
     for r in rows:
         cid = str(r["circuit_id"])
+        cname = r["circuit_name"]
         i_val = r["i_a"]
         if i_val is None:
             raise ValueError(f"i_calc_a is NULL for circuit_id={cid}")
@@ -120,6 +126,18 @@ def calc_phase_balance(
                     sum_l2 += i_float
                 else:
                     sum_l3 += i_float
+            else:
+                invalid_manual_count += 1
+                warnings.append(
+                    {
+                        "circuit_id": cid,
+                        "name": str(cname) if cname is not None else None,
+                        "i_a": i_float,
+                        "phase": None if phase_raw is None else str(phase_raw),
+                        "phase_source": phase_source_val,
+                        "reason": "MANUAL_INVALID_PHASE",
+                    }
+                )
         else:
             auto_circuits.append((cid, i_float))
 
@@ -144,7 +162,21 @@ def calc_phase_balance(
         )
 
     # 5) Compute unbalance_pct and upsert panel_phase_balance
-    _upsert_panel_phase_balance(conn, panel_id, mode_norm, sum_l1, sum_l2, sum_l3)
+    warnings_json: str | None = None
+    if warnings:
+        warnings.sort(key=lambda w: str(w.get("circuit_id") or ""))
+        warnings_json = json.dumps(warnings, ensure_ascii=False)
+
+    _upsert_panel_phase_balance(
+        conn,
+        panel_id,
+        mode_norm,
+        sum_l1,
+        sum_l2,
+        sum_l3,
+        invalid_manual_count=invalid_manual_count,
+        warnings_json=warnings_json,
+    )
     conn.commit()
     return len(rows)
 
@@ -156,12 +188,51 @@ def _upsert_panel_phase_balance(
     i_l1: float,
     i_l2: float,
     i_l3: float,
+    *,
+    invalid_manual_count: int = 0,
+    warnings_json: str | None = None,
 ) -> None:
     i_max = max(i_l1, i_l2, i_l3)
     i_avg = (i_l1 + i_l2 + i_l3) / 3.0
     unbalance_pct = 0.0 if i_avg == 0 else (100.0 * (i_max - i_avg) / i_avg)
 
     updated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    pb_cols = [r[1] for r in conn.execute("PRAGMA table_info(panel_phase_balance)").fetchall()]
+    has_invalid_manual_count = "invalid_manual_count" in pb_cols
+    has_warnings_json = "warnings_json" in pb_cols
+
+    if has_invalid_manual_count and has_warnings_json:
+        conn.execute(
+            """
+            INSERT INTO panel_phase_balance (
+              panel_id, mode, i_l1, i_l2, i_l3, unbalance_pct, updated_at,
+              invalid_manual_count, warnings_json
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(panel_id, mode) DO UPDATE SET
+              i_l1 = excluded.i_l1,
+              i_l2 = excluded.i_l2,
+              i_l3 = excluded.i_l3,
+              unbalance_pct = excluded.unbalance_pct,
+              updated_at = excluded.updated_at,
+              invalid_manual_count = excluded.invalid_manual_count,
+              warnings_json = excluded.warnings_json
+            """,
+            (
+                panel_id,
+                mode,
+                i_l1,
+                i_l2,
+                i_l3,
+                unbalance_pct,
+                updated_at,
+                int(invalid_manual_count),
+                warnings_json,
+            ),
+        )
+        return
+
+    # Backward-compatible upsert (older DBs)
     conn.execute(
         """
         INSERT INTO panel_phase_balance (
