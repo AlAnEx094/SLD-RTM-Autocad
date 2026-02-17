@@ -2,7 +2,7 @@
 -- Агрегированный слепок схемы (MVP-0.3 + Feeds v2).
 -- Источник истины для эволюции схемы — миграции в db/migrations/.
 --
--- Схема: 0001..0004 + 0005_feeds_v2_refs + 0006_section_calc_mode_emergency + 0007_phase_balance
+-- Схема: 0001..0004 + 0005_feeds_v2_refs + 0006_section_calc_mode_emergency + 0007_phase_balance + 0008_phase_source
 
 PRAGMA foreign_keys = ON;
 
@@ -118,6 +118,7 @@ CREATE TABLE IF NOT EXISTS circuits (
   load_kind TEXT NOT NULL DEFAULT 'OTHER' CHECK (load_kind IN ('LIGHTING', 'OTHER')),
   i_calc_a REAL NOT NULL,
   phase TEXT NULL CHECK (phase IN ('L1','L2','L3')),
+  phase_source TEXT NOT NULL DEFAULT 'AUTO' CHECK (phase_source IN ('AUTO','MANUAL')),
   FOREIGN KEY(panel_id) REFERENCES panels(id) ON DELETE CASCADE
 );
 
