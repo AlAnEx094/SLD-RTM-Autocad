@@ -16,6 +16,14 @@ PHASES_VALID = (1, 3)
 MODE_VALID = ("NORMAL", "EMERGENCY")
 
 
+def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+        (table,),
+    ).fetchone()
+    return row is not None
+
+
 def calc_phase_balance(
     conn: sqlite3.Connection,
     panel_id: str,
@@ -49,11 +57,52 @@ def calc_phase_balance(
     # Check if phase_source column exists (migration 0008)
     circuits_cols = [r[1] for r in conn.execute("PRAGMA table_info(circuits)").fetchall()]
     has_phase_source = "phase_source" in circuits_cols
+    has_bus_section_id = "bus_section_id" in circuits_cols
+
+    # v0.3a: EMERGENCY mode may filter circuits by active emergency bus sections.
+    pre_warnings: list[dict[str, object]] = []
+    section_filter_sql = ""
+    section_filter_params: list[object] = []
+    if mode_norm == "EMERGENCY":
+        active_sections: list[str] = []
+        if _table_exists(conn, "section_calc"):
+            sec_cols = [r[1] for r in conn.execute("PRAGMA table_info(section_calc)").fetchall()]
+            # schema uses s_kva (contracts may call it sp_kva); keep compatibility
+            kva_col = "sp_kva" if "sp_kva" in sec_cols else ("s_kva" if "s_kva" in sec_cols else None)
+            if kva_col is not None:
+                sec_rows = conn.execute(
+                    f"""
+                    SELECT bus_section_id
+                    FROM section_calc
+                    WHERE panel_id = ?
+                      AND mode = 'EMERGENCY'
+                      AND ({kva_col} > 0 OR i_a > 0)
+                    ORDER BY bus_section_id
+                    """,
+                    (panel_id,),
+                ).fetchall()
+            else:
+                sec_rows = []
+            active_sections = [str(r[0]) for r in sec_rows if r and r[0] is not None]
+
+        if has_bus_section_id and active_sections:
+            placeholders = ", ".join(["?"] * len(active_sections))
+            section_filter_sql = f" AND c.bus_section_id IN ({placeholders})"
+            section_filter_params = list(active_sections)
+        else:
+            # Fallback: cannot do real EMERGENCY filtering.
+            pre_warnings.append(
+                {
+                    "reason": "EMERGENCY_SECTIONS_NOT_COMPUTED",
+                    "mode": "EMERGENCY",
+                }
+            )
 
     # 1) Select all 1PH circuits with I, phase, and optionally phase_source
     if not has_phase_source:
         rows = conn.execute(
-            """
+            (
+                """
             SELECT
               c.id AS circuit_id,
               c.name AS circuit_name,
@@ -63,12 +112,15 @@ def calc_phase_balance(
             FROM circuits c
             LEFT JOIN circuit_calc cc ON cc.circuit_id = c.id
             WHERE c.panel_id = ? AND c.phases = ?
-            """,
-            (panel_id, PHASES_1PH),
+                """
+                + section_filter_sql
+            ),
+            (panel_id, PHASES_1PH, *section_filter_params),
         ).fetchall()
     else:
         rows = conn.execute(
-            """
+            (
+                """
             SELECT
               c.id AS circuit_id,
               c.name AS circuit_name,
@@ -78,8 +130,10 @@ def calc_phase_balance(
             FROM circuits c
             LEFT JOIN circuit_calc cc ON cc.circuit_id = c.id
             WHERE c.panel_id = ? AND c.phases = ?
-            """,
-            (panel_id, PHASES_1PH),
+                """
+                + section_filter_sql
+            ),
+            (panel_id, PHASES_1PH, *section_filter_params),
         ).fetchall()
 
     if not rows:
@@ -104,7 +158,7 @@ def calc_phase_balance(
     sum_l3 = 0.0
     auto_circuits: list[tuple[str, float]] = []
     invalid_manual_count = 0
-    warnings: list[dict[str, object]] = []
+    warnings: list[dict[str, object]] = list(pre_warnings)
 
     for r in rows:
         cid = str(r["circuit_id"])
