@@ -83,8 +83,18 @@ def calc_phase_balance(
         ).fetchall()
 
     if not rows:
-        # No 1PH circuits; still upsert panel_phase_balance with zeros
-        _upsert_panel_phase_balance(conn, panel_id, mode_norm, 0.0, 0.0, 0.0)
+        # No 1PH circuits; still upsert panel_phase_balance with zeros.
+        # Explicitly clear warnings (G1): invalid_manual_count=0, warnings_json=NULL.
+        _upsert_panel_phase_balance(
+            conn,
+            panel_id,
+            mode_norm,
+            0.0,
+            0.0,
+            0.0,
+            invalid_manual_count=0,
+            warnings_json=None,
+        )
         conn.commit()
         return 0
 
