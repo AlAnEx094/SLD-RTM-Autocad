@@ -256,6 +256,12 @@ def main() -> int:
         default="NORMAL",
         help="Mode for panel_phase_balance (default: NORMAL).",
     )
+    ap.add_argument(
+        "--no-respect-manual-phases",
+        action="store_true",
+        dest="no_respect_manual_phases",
+        help="Do not protect MANUAL phase assignments; algorithm may overwrite any phase (default: respect manual).",
+    )
     args = ap.parse_args()
 
     db_path = Path(args.db)
@@ -306,7 +312,12 @@ def main() -> int:
         con = sqlite3.connect(db_path)
         try:
             con.execute("PRAGMA foreign_keys = ON;")
-            pb_count = calc_phase_balance(con, panel_id, mode=args.pb_mode)
+            pb_count = calc_phase_balance(
+                con,
+                panel_id,
+                mode=args.pb_mode,
+                respect_manual=not args.no_respect_manual_phases,
+            )
         finally:
             con.close()
 

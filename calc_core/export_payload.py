@@ -105,11 +105,11 @@ def build_payload(conn: sqlite3.Connection, panel_id: str) -> dict:
             }
         )
 
-    has_phase = any(
-        r[1] == "phase"
-        for r in conn.execute("PRAGMA table_info(circuits)").fetchall()
-    )
+    circuits_cols = [r[1] for r in conn.execute("PRAGMA table_info(circuits)").fetchall()]
+    has_phase = "phase" in circuits_cols
+    has_phase_source = "phase_source" in circuits_cols
     phase_col = "c.phase," if has_phase else ""
+    phase_source_col = "c.phase_source," if has_phase_source else ""
     circuits_rows = conn.execute(
         f"""
         SELECT
@@ -117,6 +117,7 @@ def build_payload(conn: sqlite3.Connection, panel_id: str) -> dict:
           c.name,
           c.phases,
           {phase_col}
+          {phase_source_col}
           c.length_m,
           c.material,
           c.cos_phi,
@@ -158,32 +159,42 @@ def build_payload(conn: sqlite3.Connection, panel_id: str) -> dict:
             if s in ("L1", "L2", "L3"):
                 phase_val = s
 
-        circuits_payload.append(
-            {
-                "circuit_id": circuit_id,
-                "name": row["name"],
-                "phases": phases,
-                "phase": phase_val,
-                "length_m": _required_float(
-                    row["length_m"], "length_m", f"circuits.id={circuit_id}"
+        phase_source_val = None
+        if has_phase_source:
+            # NOTE: sqlite3.Row does not support .get(); use [] access.
+            ps = row["phase_source"]
+            if ps is not None:
+                s = str(ps).strip()
+                if s in ("AUTO", "MANUAL"):
+                    phase_source_val = s
+
+        circuit_entry: dict = {
+            "circuit_id": circuit_id,
+            "name": row["name"],
+            "phases": phases,
+            "phase": phase_val,
+            "length_m": _required_float(
+                row["length_m"], "length_m", f"circuits.id={circuit_id}"
+            ),
+            "material": str(row["material"]),
+            "cos_phi": _required_float(
+                row["cos_phi"], "cos_phi", f"circuits.id={circuit_id}"
+            ),
+            "load_kind": str(row["load_kind"]),
+            "calc": {
+                "status": calc_status,
+                "i_calc_a": _required_float(
+                    row["circuit_i_calc_a"], "i_calc_a", f"circuits.id={circuit_id}"
                 ),
-                "material": str(row["material"]),
-                "cos_phi": _required_float(
-                    row["cos_phi"], "cos_phi", f"circuits.id={circuit_id}"
-                ),
-                "load_kind": str(row["load_kind"]),
-                "calc": {
-                    "status": calc_status,
-                    "i_calc_a": _required_float(
-                        row["circuit_i_calc_a"], "i_calc_a", f"circuits.id={circuit_id}"
-                    ),
-                    "du_v": du_v,
-                    "du_pct": du_pct,
-                    "du_limit_pct": du_limit_pct,
-                    "s_mm2_selected": s_mm2_selected,
-                },
-            }
-        )
+                "du_v": du_v,
+                "du_pct": du_pct,
+                "du_limit_pct": du_limit_pct,
+                "s_mm2_selected": s_mm2_selected,
+            },
+        }
+        if has_phase_source:
+            circuit_entry["phase_source"] = phase_source_val
+        circuits_payload.append(circuit_entry)
 
     payload = {
         "version": "0.4",
