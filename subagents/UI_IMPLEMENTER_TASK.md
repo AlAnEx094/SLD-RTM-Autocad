@@ -1,7 +1,7 @@
-# UI_IMPLEMENTER TASK — MVP-BAL v0.1.2 (warnings + UI highlight)
+# UI_IMPLEMENTER TASK — MVP-BAL v0.2 (pb-mode selector + warnings auto-clear UI)
 
 ROLE: UI_IMPLEMENTER  
-BRANCH: `feature/pb-warn-ui` (создавай изменения и коммиты только здесь)  
+BRANCH: `feature/pb-v0-2-ui` (создавай изменения и коммиты только здесь)  
 
 SCOPE (разрешено менять): `app/*`  
 SCOPE (запрещено менять): `db/*`, `calc_core/*`, `tools/*`, `tests/*`, `dwg/*`, `docs/*`
@@ -24,7 +24,7 @@ SCOPE (запрещено менять): `db/*`, `calc_core/*`, `tools/*`, `test
 
 ## Цель (обязательно)
 
-### 1) Кнопка запуска “Балансировка фаз” + protect MANUAL (обязательно)
+### 1) pb-mode selector + запуск балансировки (обязательно)
 
 Добавить UI действие (рекомендуемое место: `app/views/calculate.py`, рядом с RTM/DU/SECTIONS):
 
@@ -35,12 +35,19 @@ SCOPE (запрещено менять): `db/*`, `calc_core/*`, `tools/*`, `test
   - RU: “Не изменять вручную назначенные фазы”
   - EN: “Do not overwrite manually assigned phases”
   - передавать `respect_manual` в вызов расчёта
+- добавить selector `pb-mode` = `NORMAL|EMERGENCY` (RU/EN через i18n)
+- использовать выбранный mode для:
+  - чтения `panel_phase_balance` (display)
+  - запуска `calc_phase_balance(..., mode=selected_mode, ...)` (storage)
 
 ### 1.1) Warning banner + details (обязательно)
 
 - если `panel_phase_balance.invalid_manual_count > 0`:
   - показать persistent warning banner (i18n RU/EN)
   - показать expandable список/таблицу offending circuits из `warnings_json`
+- hide/auto-clear UX:
+  - если `invalid_manual_count == 0` → banner/expander не должны отображаться
+  - если `warnings_json` пустой/NULL → expander не показывать
 
 ### 2) Таблица цепей с фазой
 
@@ -91,7 +98,7 @@ SCOPE (запрещено менять): `db/*`, `calc_core/*`, `tools/*`, `test
 
 ## Git workflow (обязательно)
 
-1) `git checkout -b feature/pb-warn-ui` (или `git checkout feature/pb-warn-ui`)
+1) `git checkout -b feature/pb-v0-2-ui` (или `git checkout feature/pb-v0-2-ui`)
 2) Правки только в `app/*`
 3) `git add app`
-4) `git commit -m "ui: show phase balance warnings"`
+4) `git commit -m "ui: add pb-mode selector to phase balance"`

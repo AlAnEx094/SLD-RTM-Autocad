@@ -1,7 +1,7 @@
-# QA_ASSISTANT TASK — MVP-BAL v0.1.2 (warnings tests)
+# QA_ASSISTANT TASK — MVP-BAL v0.2 (pb-mode + warnings auto-clear tests)
 
 ROLE: QA_ASSISTANT  
-BRANCH: `feature/pb-warn-qa` (создавай изменения и коммиты только здесь)  
+BRANCH: `feature/pb-v0-2-qa` (создавай изменения и коммиты только здесь)  
 SCOPE (разрешено менять): `tests/*`  
 SCOPE (запрещено менять): `db/*`, `calc_core/*`, `tools/*`, `app/*`, `docs/*`, `dwg/*`
 
@@ -17,9 +17,9 @@ SCOPE (запрещено менять): `db/*`, `calc_core/*`, `tools/*`, `app/
 
 ## Что нужно сделать (обязательно)
 
-### 1) Тест invalid MANUAL phase warnings (обязательно)
+### 1) Тест warnings auto-clear (обязательно)
 
-Добавить тест (например `tests/test_phase_balance_warnings.py`), который:
+Обновить/добавить тест (например `tests/test_phase_balance_warnings.py`), который:
 
 - создаёт 1Ф цепь с `phase_source='MANUAL'` и невалидной `phase` (NULL/\"L4\")
 - запускает `calc_phase_balance(..., respect_manual=True)`
@@ -27,6 +27,10 @@ SCOPE (запрещено менять): `db/*`, `calc_core/*`, `tools/*`, `app/
   - `panel_phase_balance.invalid_manual_count > 0`
   - `panel_phase_balance.warnings_json` не пуст
   - суммы `i_l1/i_l2/i_l3` НЕ включают ток этой цепи
+- затем исправляет фазу (например `phase='L1'` при `phase_source='MANUAL'`) и повторно запускает calc
+- проверяет авто-очистку:
+  - `invalid_manual_count == 0`
+  - `warnings_json IS NULL`
 
 ### 2) Тест DB constraint (обязательно)
 
@@ -52,12 +56,12 @@ SCOPE (запрещено менять): `db/*`, `calc_core/*`, `tools/*`, `app/
 ## Acceptance criteria
 
 - `pytest -q` зелёный.
-- Добавлены тесты: invalid MANUAL warnings + ограничения БД + экспорт phase.
+- Добавлены тесты: warnings auto-clear + ограничения БД + экспорт phase.
 
 ## Git workflow (обязательно)
 
-1) `git checkout -b feature/pb-warn-qa` (или `git checkout feature/pb-warn-qa`)
+1) `git checkout -b feature/pb-v0-2-qa` (или `git checkout feature/pb-v0-2-qa`)
 2) Правки только в `tests/*`
 3) `git add tests`
-4) `git commit -m "test: add phase balance warnings coverage"`
+4) `git commit -m "test: add phase balance v0.2 coverage"`
 

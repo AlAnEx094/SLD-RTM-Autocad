@@ -1,7 +1,7 @@
-# CALC_ENGINEER TASK — MVP-BAL v0.1.2 (invalid MANUAL warnings)
+# CALC_ENGINEER TASK — MVP-BAL v0.2 (pb-mode + warnings auto-clear)
 
 ROLE: CALC_ENGINEER  
-BRANCH: `feature/pb-warn-calc` (создавай изменения и коммиты только здесь)  
+BRANCH: `feature/pb-v0-2-calc` (создавай изменения и коммиты только здесь)  
 SCOPE (разрешено менять): `calc_core/*`, `tools/*`, `dwg/*`  
 SCOPE (запрещено менять): `db/*`, `tests/*`, `app/*`
 
@@ -50,6 +50,16 @@ API (норма, но можно эквивалентно):
   - `invalid_manual_count`
   - `warnings_json` (JSON array)
 
+#### v0.2: warnings auto-clear (non-sticky)
+
+Норматив:
+
+- если в текущем запуске **нет** invalid MANUAL phases:
+  - upsert должен записать `invalid_manual_count=0`
+  - upsert должен записать `warnings_json=NULL`
+
+Это должно очищать прошлые предупреждения после исправления данных.
+
 ### 2) CLI `tools/run_calc.py` (без новых флагов)
 
 Добавить флаги:
@@ -91,8 +101,8 @@ CLI должен:
 
 ## Git workflow (обязательно)
 
-1) `git checkout -b feature/pb-warn-calc` (или `git checkout feature/pb-warn-calc`)
+1) `git checkout -b feature/pb-v0-2-calc` (или `git checkout feature/pb-v0-2-calc`)
 2) Правки только в `calc_core/*`, `tools/*`, `dwg/*`
 3) `git add calc_core tools dwg`
-4) `git commit -m "calc: persist invalid manual phase warnings"`
+4) `git commit -m "calc: clear phase balance warnings when fixed"`
 
