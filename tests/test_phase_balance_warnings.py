@@ -128,3 +128,42 @@ def test_invalid_manual_phase_persists_warnings_and_excluded_from_sums(tmp_path:
     finally:
         con.close()
 
+    # Fix the invalid MANUAL phase and re-run: warnings must auto-clear.
+    con = sqlite3.connect(db_path)
+    try:
+        con.execute(
+            "UPDATE circuits SET phase = ? WHERE id = ?",
+            ("L1", c_manual_bad),
+        )
+        con.commit()
+    finally:
+        con.close()
+
+    con = sqlite3.connect(db_path)
+    con.row_factory = sqlite3.Row
+    try:
+        calc_phase_balance(con, panel_id, mode="NORMAL", respect_manual=True)
+    finally:
+        con.close()
+
+    con = sqlite3.connect(db_path)
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute(
+            """
+            SELECT i_l1, i_l2, i_l3, invalid_manual_count, warnings_json
+            FROM panel_phase_balance
+            WHERE panel_id = ? AND mode = ?
+            """,
+            (panel_id, "NORMAL"),
+        ).fetchone()
+        assert row is not None
+        assert int(row["invalid_manual_count"]) == 0
+        assert row["warnings_json"] is None
+
+        # Now both circuits should be included in sums: 100A (MANUAL) + 10A (AUTO) = 110A.
+        total = float(row["i_l1"]) + float(row["i_l2"]) + float(row["i_l3"])
+        assert total == pytest.approx(110.0, rel=1e-9, abs=1e-9)
+    finally:
+        con.close()
+
