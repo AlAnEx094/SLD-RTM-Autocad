@@ -959,16 +959,19 @@ def apply_default_mode_rules(conn: sqlite3.Connection, panel_id: str) -> int:
 def list_circuits(conn: sqlite3.Connection, panel_id: str) -> list[dict[str, Any]]:
     """List circuits for panel: id, name, phases, i_calc_a, phase (nullable), phase_source (if exists)."""
     has_phase_source = column_exists(conn, "circuits", "phase_source")
+    has_bus_section_id = column_exists(conn, "circuits", "bus_section_id")
+    bus_section_expr = "c.bus_section_id" if has_bus_section_id else "NULL"
     if has_phase_source:
         rows = conn.execute(
-            """
+            f"""
             SELECT
               c.id,
               c.name,
               c.phases,
               COALESCE(cc.i_calc_a, c.i_calc_a) AS i_calc_a,
               c.phase,
-              c.phase_source
+              c.phase_source,
+              {bus_section_expr} AS bus_section_id
             FROM circuits c
             LEFT JOIN circuit_calc cc ON cc.circuit_id = c.id
             WHERE c.panel_id = ?
@@ -978,13 +981,14 @@ def list_circuits(conn: sqlite3.Connection, panel_id: str) -> list[dict[str, Any
         ).fetchall()
     else:
         rows = conn.execute(
-            """
+            f"""
             SELECT
               c.id,
               c.name,
               c.phases,
               COALESCE(cc.i_calc_a, c.i_calc_a) AS i_calc_a,
-              c.phase
+              c.phase,
+              {bus_section_expr} AS bus_section_id
             FROM circuits c
             LEFT JOIN circuit_calc cc ON cc.circuit_id = c.id
             WHERE c.panel_id = ?
@@ -996,6 +1000,9 @@ def list_circuits(conn: sqlite3.Connection, panel_id: str) -> list[dict[str, Any
     if not has_phase_source:
         for r in result:
             r["phase_source"] = "AUTO"
+    if not has_bus_section_id:
+        for r in result:
+            r["bus_section_id"] = None
     return result
 
 
@@ -1038,6 +1045,21 @@ def update_circuit_phase(
                 "UPDATE circuits SET phase = NULL WHERE id = ?",
                 (circuit_id,),
             )
+
+
+def update_circuit_bus_section(
+    conn: sqlite3.Connection, circuit_id: str, bus_section_id_or_none: str | None
+) -> None:
+    """Update circuit bus section binding (nullable FK -> bus_sections.id)."""
+    if not column_exists(conn, "circuits", "bus_section_id"):
+        raise RuntimeError("circuits.bus_section_id column is missing (apply migrations)")
+    if bus_section_id_or_none is None or str(bus_section_id_or_none).strip() == "":
+        conn.execute("UPDATE circuits SET bus_section_id = NULL WHERE id = ?", (circuit_id,))
+    else:
+        conn.execute(
+            "UPDATE circuits SET bus_section_id = ? WHERE id = ?",
+            (str(bus_section_id_or_none).strip(), circuit_id),
+        )
 
 
 def get_panel_phase_balance(

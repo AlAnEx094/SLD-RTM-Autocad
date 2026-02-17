@@ -197,18 +197,31 @@ def _render_phase_balance_section(conn, state: dict, panel_id: str, panel: dict)
         cols[3].metric(t("phase_balance.unbalance_pct"), f"{float(balance['unbalance_pct']):.1f}%")
         st.caption(t("phase_balance.updated_at", at=balance.get("updated_at") or t("common.dash")))
         invalid_count = int(balance.get("invalid_manual_count") or 0) if isinstance(balance, dict) else 0
+        raw = balance.get("warnings_json")
+        items: list[dict] = []
+        if raw:
+            try:
+                parsed = json.loads(str(raw))
+                if isinstance(parsed, list):
+                    items = [x for x in parsed if isinstance(x, dict)]
+            except Exception:
+                items = []
+
+        # v0.3a panel-level warning: EMERGENCY sections not computed -> fallback used.
+        if any(str(it.get("reason") or "").strip().upper() == "EMERGENCY_SECTIONS_NOT_COMPUTED" for it in items):
+            st.warning(t("phase_balance.emergency_sections_not_computed"))
+
         if invalid_count > 0:
             st.warning(t("phase_balance.invalid_manual_banner", count=invalid_count))
-            raw = balance.get("warnings_json")
-            items: list[dict] = []
-            if raw:
-                try:
-                    parsed = json.loads(str(raw))
-                    if isinstance(parsed, list):
-                        items = [x for x in parsed if isinstance(x, dict)]
-                except Exception:
-                    items = []
-            if not items:
+
+        # Details expander only when we have circuit-level items.
+        circuit_items = [
+            it
+            for it in items
+            if str(it.get("reason") or "").strip().upper() != "EMERGENCY_SECTIONS_NOT_COMPUTED"
+        ]
+        if invalid_count > 0:
+            if not circuit_items:
                 st.caption(t("phase_balance.invalid_manual_no_details"))
             else:
                 with st.expander(
@@ -219,6 +232,8 @@ def _render_phase_balance_section(conn, state: dict, panel_id: str, panel: dict)
                         c = str(code or "").strip().upper()
                         if c == "MANUAL_INVALID_PHASE":
                             return t("phase_balance.reason_manual_invalid_phase")
+                        if c == "EMERGENCY_SECTIONS_NOT_COMPUTED":
+                            return t("phase_balance.reason_emergency_sections_not_computed")
                         return c or t("common.dash")
 
                     st.dataframe(
@@ -230,7 +245,7 @@ def _render_phase_balance_section(conn, state: dict, panel_id: str, panel: dict)
                                 t("phase_balance.col_phase"): it.get("phase") or "",
                                 t("phase_balance.col_reason"): _reason_label(it.get("reason")),
                             }
-                            for it in items
+                            for it in circuit_items
                         ],
                         use_container_width=True,
                     )
@@ -241,10 +256,21 @@ def _render_phase_balance_section(conn, state: dict, panel_id: str, panel: dict)
         st.info(t("phase_balance.no_1ph_circuits"))
         return
 
+    if pb_mode == "EMERGENCY":
+        unset_count = sum(1 for c in circuits_1ph if not c.get("bus_section_id"))
+        if unset_count > 0:
+            st.warning(t("phase_balance.emergency_bus_section_unset", count=unset_count))
+
     def _phase_source_label(src: str) -> str:
         if src == "MANUAL":
             return t("phase_balance.phase_source_manual")
         return t("phase_balance.phase_source_auto")
+
+    bus_sections = db.list_bus_sections(conn, panel_id)
+    # Use stable labels to avoid ambiguity in dropdown.
+    section_label_by_id = {s["id"]: f"{s['name']} ({str(s['id'])[:8]})" for s in bus_sections}
+    section_id_by_label = {v: k for k, v in section_label_by_id.items()}
+    section_labels = sorted(section_label_by_id.values())
 
     df = pd.DataFrame(
         [
@@ -253,6 +279,11 @@ def _render_phase_balance_section(conn, state: dict, panel_id: str, panel: dict)
                 "name": c.get("name") or "",
                 "phases": int(c["phases"]),
                 "i_calc_a": float(c["i_calc_a"]),
+                "bus_section": (
+                    section_label_by_id.get(c.get("bus_section_id"))
+                    if c.get("bus_section_id")
+                    else ""
+                ),
                 "phase": c.get("phase") or "",
                 "status": (
                     t("phase_balance.status_invalid_manual")
@@ -275,6 +306,13 @@ def _render_phase_balance_section(conn, state: dict, panel_id: str, panel: dict)
         "phases": st.column_config.NumberColumn(t("phase_balance.col_phases"), disabled=True),
         "i_calc_a": st.column_config.NumberColumn(
             t("phase_balance.col_i_calc_a"), format="%.2f", disabled=True
+        ),
+        "bus_section": st.column_config.SelectboxColumn(
+            t("phase_balance.col_bus_section"),
+            options=["", *section_labels],
+            required=False,
+            default="",
+            disabled=not is_edit,
         ),
         "phase": st.column_config.SelectboxColumn(
             t("phase_balance.col_phase"),
@@ -303,7 +341,11 @@ def _render_phase_balance_section(conn, state: dict, panel_id: str, panel: dict)
     if is_edit and st.button(t("phase_balance.save_phases_btn")):
         try:
             orig_by_id = {
-                c["id"]: ((c.get("phase") or "").strip() or None) for c in circuits_1ph
+                c["id"]: (
+                    ((c.get("phase") or "").strip() or None),
+                    (c.get("bus_section_id") or None),
+                )
+                for c in circuits_1ph
             }
             with db.tx(conn):
                 for _, row in edited.iterrows():
@@ -312,11 +354,19 @@ def _render_phase_balance_section(conn, state: dict, panel_id: str, panel: dict)
                     new_phase = str(new_phase).strip() if new_phase else None
                     if new_phase == "":
                         new_phase = None
-                    phase_changed = orig_by_id.get(circ_id) != new_phase
+                    new_bus_label = row.get("bus_section") or ""
+                    new_bus_label = str(new_bus_label).strip() if new_bus_label else ""
+                    new_bus_id = section_id_by_label.get(new_bus_label) if new_bus_label else None
+
+                    orig_phase, orig_bus = orig_by_id.get(circ_id, (None, None))
+                    phase_changed = orig_phase != new_phase
+                    bus_changed = orig_bus != new_bus_id
                     if phase_changed:
                         db.update_circuit_phase(
                             conn, circ_id, new_phase, phase_source="MANUAL"
                         )
+                    if bus_changed:
+                        db.update_circuit_bus_section(conn, circ_id, new_bus_id)
                 db.touch_ui_input_meta(conn, panel_id, db.SUBSYSTEM_PHASE, note="phase_balance_edit")
             db.update_state_after_write(state, state["db_path"], conn)
             st.success(t("phase_balance.save_success"))
