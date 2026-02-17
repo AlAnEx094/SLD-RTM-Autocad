@@ -153,6 +153,11 @@ def _render_phase_balance_section(conn, state: dict, panel_id: str, panel: dict)
     st.subheader(t("phase_balance.section"))
 
     is_edit = state.get("mode_effective") == "EDIT"
+    respect_manual = st.checkbox(
+        t("phase_balance.respect_manual"),
+        value=True,
+        key="phase_balance_respect_manual",
+    )
 
     if is_edit and st.button(t("phase_balance.run_btn")):
         try:
@@ -162,7 +167,9 @@ def _render_phase_balance_section(conn, state: dict, panel_id: str, panel: dict)
             try:
                 pb_conn.row_factory = sqlite3.Row
                 pb_conn.execute("PRAGMA foreign_keys = ON;")
-                count = calc_phase_balance(pb_conn, panel_id, mode="NORMAL")
+                count = calc_phase_balance(
+                    pb_conn, panel_id, mode="NORMAL", respect_manual=respect_manual
+                )
                 pb_conn.commit()
             finally:
                 pb_conn.close()
@@ -187,6 +194,11 @@ def _render_phase_balance_section(conn, state: dict, panel_id: str, panel: dict)
         st.info(t("phase_balance.no_1ph_circuits"))
         return
 
+    def _phase_source_label(src: str) -> str:
+        if src == "MANUAL":
+            return t("phase_balance.phase_source_manual")
+        return t("phase_balance.phase_source_auto")
+
     df = pd.DataFrame(
         [
             {
@@ -195,6 +207,9 @@ def _render_phase_balance_section(conn, state: dict, panel_id: str, panel: dict)
                 "phases": int(c["phases"]),
                 "i_calc_a": float(c["i_calc_a"]),
                 "phase": c.get("phase") or "",
+                "phase_source": _phase_source_label(
+                    (c.get("phase_source") or "AUTO").strip().upper()
+                ),
             }
             for c in circuits_1ph
         ]
@@ -215,6 +230,9 @@ def _render_phase_balance_section(conn, state: dict, panel_id: str, panel: dict)
             default="",
             disabled=not is_edit,
         ),
+        "phase_source": st.column_config.TextColumn(
+            t("phase_balance.col_phase_source"), disabled=True
+        ),
     }
 
     edited = st.data_editor(
@@ -222,11 +240,14 @@ def _render_phase_balance_section(conn, state: dict, panel_id: str, panel: dict)
         column_config=col_config,
         use_container_width=True,
         key="phase_balance_circuits",
-        disabled=["id", "name", "phases", "i_calc_a"],
+        disabled=["id", "name", "phases", "i_calc_a", "phase_source"],
     )
 
     if is_edit and st.button(t("phase_balance.save_phases_btn")):
         try:
+            orig_by_id = {
+                c["id"]: ((c.get("phase") or "").strip() or None) for c in circuits_1ph
+            }
             with db.tx(conn):
                 for _, row in edited.iterrows():
                     circ_id = row["id"]
@@ -234,7 +255,11 @@ def _render_phase_balance_section(conn, state: dict, panel_id: str, panel: dict)
                     new_phase = str(new_phase).strip() if new_phase else None
                     if new_phase == "":
                         new_phase = None
-                    db.update_circuit_phase(conn, circ_id, new_phase)
+                    phase_changed = orig_by_id.get(circ_id) != new_phase
+                    if phase_changed:
+                        db.update_circuit_phase(
+                            conn, circ_id, new_phase, phase_source="MANUAL"
+                        )
                 db.touch_ui_input_meta(conn, panel_id, db.SUBSYSTEM_PHASE, note="phase_balance_edit")
             db.update_state_after_write(state, state["db_path"], conn)
             st.success(t("phase_balance.save_success"))

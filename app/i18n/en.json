@@ -211,6 +211,10 @@
   "phase_balance.save_phases_btn": "Save circuit phases",
   "phase_balance.save_success": "Circuit phases saved.",
   "phase_balance.save_error": "Error saving phases: {exc}",
+  "phase_balance.respect_manual": "Do not overwrite manually assigned phases",
+  "phase_balance.col_phase_source": "Phase source",
+  "phase_balance.phase_source_auto": "Auto",
+  "phase_balance.phase_source_manual": "Manual",
 
   "export.header": "Export",
   "export.select_panel": "Select a panel to export.",

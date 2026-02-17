@@ -957,42 +957,87 @@ def apply_default_mode_rules(conn: sqlite3.Connection, panel_id: str) -> int:
 
 
 def list_circuits(conn: sqlite3.Connection, panel_id: str) -> list[dict[str, Any]]:
-    """List circuits for panel: id, name, phases, i_calc_a, phase (nullable)."""
-    rows = conn.execute(
-        """
-        SELECT
-          c.id,
-          c.name,
-          c.phases,
-          COALESCE(cc.i_calc_a, c.i_calc_a) AS i_calc_a,
-          c.phase
-        FROM circuits c
-        LEFT JOIN circuit_calc cc ON cc.circuit_id = c.id
-        WHERE c.panel_id = ?
-        ORDER BY COALESCE(c.name, ''), c.id ASC
-        """,
-        (panel_id,),
-    ).fetchall()
-    return [dict(r) for r in rows]
+    """List circuits for panel: id, name, phases, i_calc_a, phase (nullable), phase_source (if exists)."""
+    has_phase_source = column_exists(conn, "circuits", "phase_source")
+    if has_phase_source:
+        rows = conn.execute(
+            """
+            SELECT
+              c.id,
+              c.name,
+              c.phases,
+              COALESCE(cc.i_calc_a, c.i_calc_a) AS i_calc_a,
+              c.phase,
+              c.phase_source
+            FROM circuits c
+            LEFT JOIN circuit_calc cc ON cc.circuit_id = c.id
+            WHERE c.panel_id = ?
+            ORDER BY COALESCE(c.name, ''), c.id ASC
+            """,
+            (panel_id,),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            """
+            SELECT
+              c.id,
+              c.name,
+              c.phases,
+              COALESCE(cc.i_calc_a, c.i_calc_a) AS i_calc_a,
+              c.phase
+            FROM circuits c
+            LEFT JOIN circuit_calc cc ON cc.circuit_id = c.id
+            WHERE c.panel_id = ?
+            ORDER BY COALESCE(c.name, ''), c.id ASC
+            """,
+            (panel_id,),
+        ).fetchall()
+    result = [dict(r) for r in rows]
+    if not has_phase_source:
+        for r in result:
+            r["phase_source"] = "AUTO"
+    return result
 
 
 def update_circuit_phase(
-    conn: sqlite3.Connection, circuit_id: str, phase_or_none: str | None
+    conn: sqlite3.Connection,
+    circuit_id: str,
+    phase_or_none: str | None,
+    *,
+    phase_source: str | None = None,
 ) -> None:
-    """Update circuit phase. Allowed: None, 'L1', 'L2', 'L3'."""
+    """Update circuit phase. Allowed: None, 'L1', 'L2', 'L3'.
+    When phase_source is provided and column exists, updates phase_source (AUTO/MANUAL).
+    """
     if phase_or_none is not None and phase_or_none != "":
         val = str(phase_or_none).strip().upper()
         if val not in ("L1", "L2", "L3"):
             raise ValueError(f"phase must be L1, L2, L3 or empty; got {phase_or_none!r}")
-        conn.execute(
-            "UPDATE circuits SET phase = ? WHERE id = ?",
-            (val, circuit_id),
-        )
+        if column_exists(conn, "circuits", "phase_source") and phase_source is not None:
+            if phase_source not in ("AUTO", "MANUAL"):
+                raise ValueError(f"phase_source must be AUTO or MANUAL; got {phase_source!r}")
+            conn.execute(
+                "UPDATE circuits SET phase = ?, phase_source = ? WHERE id = ?",
+                (val, phase_source, circuit_id),
+            )
+        else:
+            conn.execute(
+                "UPDATE circuits SET phase = ? WHERE id = ?",
+                (val, circuit_id),
+            )
     else:
-        conn.execute(
-            "UPDATE circuits SET phase = NULL WHERE id = ?",
-            (circuit_id,),
-        )
+        if column_exists(conn, "circuits", "phase_source") and phase_source is not None:
+            if phase_source not in ("AUTO", "MANUAL"):
+                raise ValueError(f"phase_source must be AUTO or MANUAL; got {phase_source!r}")
+            conn.execute(
+                "UPDATE circuits SET phase = NULL, phase_source = ? WHERE id = ?",
+                (phase_source, circuit_id),
+            )
+        else:
+            conn.execute(
+                "UPDATE circuits SET phase = NULL WHERE id = ?",
+                (circuit_id,),
+            )
 
 
 def get_panel_phase_balance(

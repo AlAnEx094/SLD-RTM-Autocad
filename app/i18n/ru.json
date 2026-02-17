@@ -211,6 +211,10 @@
   "phase_balance.save_phases_btn": "Сохранить фазы цепей",
   "phase_balance.save_success": "Фазы цепей сохранены.",
   "phase_balance.save_error": "Ошибка сохранения фаз: {exc}",
+  "phase_balance.respect_manual": "Не изменять вручную назначенные фазы",
+  "phase_balance.col_phase_source": "Источник фазы",
+  "phase_balance.phase_source_auto": "Авто",
+  "phase_balance.phase_source_manual": "Ручной",
 
   "export.header": "Экспорт",
   "export.select_panel": "Выберите щит для экспорта.",
