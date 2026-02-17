@@ -2,7 +2,7 @@
 -- Агрегированный слепок схемы (MVP-0.3 + Feeds v2).
 -- Источник истины для эволюции схемы — миграции в db/migrations/.
 --
--- Схема: 0001..0004 + 0005_feeds_v2_refs + 0006_section_calc_mode_emergency + 0007_phase_balance + 0008_phase_source + 0009_phase_balance_warnings
+-- Схема: 0001..0004 + 0005_feeds_v2_refs + 0006_section_calc_mode_emergency + 0007_phase_balance + 0008_phase_source + 0009_phase_balance_warnings + 0010_circuits_bus_section
 
 PRAGMA foreign_keys = ON;
 
@@ -119,10 +119,12 @@ CREATE TABLE IF NOT EXISTS circuits (
   i_calc_a REAL NOT NULL,
   phase TEXT NULL CHECK (phase IN ('L1','L2','L3')),
   phase_source TEXT NOT NULL DEFAULT 'AUTO' CHECK (phase_source IN ('AUTO','MANUAL')),
+  bus_section_id TEXT NULL REFERENCES bus_sections(id) ON DELETE SET NULL,
   FOREIGN KEY(panel_id) REFERENCES panels(id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_circuits_panel_id ON circuits(panel_id);
+CREATE INDEX IF NOT EXISTS idx_circuits_bus_section_id ON circuits(bus_section_id);
 
 -- Стандартные сечения кабеля
 CREATE TABLE IF NOT EXISTS cable_sections (
