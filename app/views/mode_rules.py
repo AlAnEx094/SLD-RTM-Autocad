@@ -71,7 +71,7 @@ def render(conn, state: dict) -> None:
             t("mode_rules.emergency_role"): role_options.get(emergency_role, emergency_role),
         })
     if rows:
-        st.dataframe(rows, use_container_width=True, disabled=True)
+        st.dataframe(rows, use_container_width=True)
 
     if is_edit and consumers:
         st.subheader(t("buttons.edit"))

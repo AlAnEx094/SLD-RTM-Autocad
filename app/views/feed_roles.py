@@ -33,7 +33,7 @@ def render(conn, state: dict) -> None:
         }
         for r in roles
     ]
-    st.dataframe(display_data, use_container_width=True, disabled=True)
+    st.dataframe(display_data, use_container_width=True)
 
     if not is_edit:
         st.info(t("feed_roles.switch_edit"))

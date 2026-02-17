@@ -233,4 +233,3 @@ CREATE TABLE IF NOT EXISTS panel_phase_balance (
 
 CREATE INDEX IF NOT EXISTS idx_panel_phase_balance_panel_id ON panel_phase_balance(panel_id);
 CREATE INDEX IF NOT EXISTS idx_panel_phase_balance_mode ON panel_phase_balance(mode);
-

@@ -59,7 +59,7 @@ def status_chip(
     title = _details_text(info).replace('"', "'")
     status_label = t(_STATUS_KEYS.get(info.status, "status.unknown")) if t else info.status
 
-    cols = st.columns([0, 1], vertical_alignment="center")
+    cols = st.columns([1, 12], vertical_alignment="center")
     with cols[0]:
         st.markdown(
             f"""
