@@ -1,21 +1,30 @@
-# QA_ASSISTANT TASK — MVP-BAL v0.2 (pb-mode + warnings auto-clear tests)
+# QA_ASSISTANT TASK — MVP-BAL v0.3a (bus_section binding + EMERGENCY filtering tests)
 
 ROLE: QA_ASSISTANT  
-BRANCH: `feature/pb-v0-2-qa` (создавай изменения и коммиты только здесь)  
+BRANCH: `feature/circuits-section-qa` (создавай изменения и коммиты только здесь)  
 SCOPE (разрешено менять): `tests/*`  
 SCOPE (запрещено менять): `db/*`, `calc_core/*`, `tools/*`, `app/*`, `docs/*`, `dwg/*`
 
 ## Источник требований
 
-- `docs/contracts/PHASE_BALANCE_V0_1.md`
+- `docs/contracts/PHASE_BALANCE_V0_1.md` (база)
+- `docs/contracts/PHASE_BALANCE_V0_3A.md` (v0.3a)
 
 ## Предпосылки (после merge db+calc+ui в main)
 
 - В БД есть `circuits.phase` и `panel_phase_balance`
+- В БД есть `circuits.bus_section_id`
 - В `calc_core` есть `phase_balance` и экспорт включает `phase`
 - UI добавляет кнопки/таблицы (не тестируем UI напрямую, только smoke/инварианты)
 
 ## Что нужно сделать (обязательно)
+
+### 0) Migration test: circuits.bus_section_id (обязательно)
+
+Добавить тест, который:
+
+- накатывает миграции на пустую БД
+- проверяет, что в `circuits` появился столбец `bus_section_id`
 
 ### 1) Тест warnings auto-clear (обязательно)
 
@@ -56,12 +65,12 @@ SCOPE (запрещено менять): `db/*`, `calc_core/*`, `tools/*`, `app/
 ## Acceptance criteria
 
 - `pytest -q` зелёный.
-- Добавлены тесты: warnings auto-clear + ограничения БД + экспорт phase.
+- Добавлены тесты: migration bus_section_id + EMERGENCY filtering + warnings auto-clear + ограничения БД + экспорт phase.
 
 ## Git workflow (обязательно)
 
-1) `git checkout -b feature/pb-v0-2-qa` (или `git checkout feature/pb-v0-2-qa`)
+1) `git checkout -b feature/circuits-section-qa` (или `git checkout feature/circuits-section-qa`)
 2) Правки только в `tests/*`
 3) `git add tests`
-4) `git commit -m "test: add phase balance v0.2 coverage"`
+4) `git commit -m "test: add circuits section binding coverage"`
 

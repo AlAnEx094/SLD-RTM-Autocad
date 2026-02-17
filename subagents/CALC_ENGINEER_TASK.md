@@ -1,13 +1,14 @@
-# CALC_ENGINEER TASK — MVP-BAL v0.2 (pb-mode + warnings auto-clear)
+# CALC_ENGINEER TASK — MVP-BAL v0.3a (EMERGENCY filtering by bus sections)
 
 ROLE: CALC_ENGINEER  
-BRANCH: `feature/pb-v0-2-calc` (создавай изменения и коммиты только здесь)  
+BRANCH: `feature/circuits-section-calc` (создавай изменения и коммиты только здесь)  
 SCOPE (разрешено менять): `calc_core/*`, `tools/*`, `dwg/*`  
 SCOPE (запрещено менять): `db/*`, `tests/*`, `app/*`
 
 ## Источник требований
 
-- `docs/contracts/PHASE_BALANCE_V0_1.md`
+- `docs/contracts/PHASE_BALANCE_V0_1.md` (база)
+- `docs/contracts/PHASE_BALANCE_V0_3A.md` (v0.3a additions)
 
 ## Предпосылки (в main после DB merge)
 
@@ -15,6 +16,7 @@ DB уже содержит:
 
 - `circuits.phase` (L1/L2/L3)
 - `circuits.phase_source` (AUTO/MANUAL)
+- `circuits.bus_section_id` (nullable FK -> bus_sections.id)
 - `panel_phase_balance(panel_id, mode, i_l1, i_l2, i_l3, unbalance_pct, updated_at, invalid_manual_count, warnings_json)`
 
 ## Цель (обязательно)
@@ -31,7 +33,15 @@ API (норма, но можно эквивалентно):
 
 Норматив:
 
-- взять 1Ф цепи `circuits.phases = 1` для `panel_id`
+- NORMAL: взять 1Ф цепи `circuits.phases = 1` для `panel_id` (как раньше)
+- EMERGENCY (v0.3a): минимальная “реальная” фильтрация:
+  - определить `active_emergency_sections` как множество `bus_section_id`, где существует
+    `section_calc(panel_id=?, mode='EMERGENCY')` и `sp_kva > 0 OR i_a > 0`
+  - если `active_emergency_sections` не пуст:
+    - включать в балансировку только 1Ф цепи с `circuits.bus_section_id IN active_emergency_sections`
+  - иначе (fallback):
+    - включать все 1Ф цепи (как в NORMAL)
+    - добавить persisted warning в `warnings_json` с причиной `EMERGENCY_SECTIONS_NOT_COMPUTED`
 - ток цепи \(I\): предпочесть `circuit_calc.i_calc_a` если есть, иначе `circuits.i_calc_a`
 - если `respect_manual=True`:
   - исключить из переназначения цепи `circuits.phase_source='MANUAL'`
@@ -101,8 +111,8 @@ CLI должен:
 
 ## Git workflow (обязательно)
 
-1) `git checkout -b feature/pb-v0-2-calc` (или `git checkout feature/pb-v0-2-calc`)
+1) `git checkout -b feature/circuits-section-calc` (или `git checkout feature/circuits-section-calc`)
 2) Правки только в `calc_core/*`, `tools/*`, `dwg/*`
 3) `git add calc_core tools dwg`
-4) `git commit -m "calc: clear phase balance warnings when fixed"`
+4) `git commit -m "calc: filter phase balance circuits in EMERGENCY"`
 

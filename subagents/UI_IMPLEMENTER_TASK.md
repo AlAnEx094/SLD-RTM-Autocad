@@ -1,7 +1,7 @@
-# UI_IMPLEMENTER TASK — MVP-BAL v0.2 (pb-mode selector + warnings auto-clear UI)
+# UI_IMPLEMENTER TASK — MVP-BAL v0.3a (bind circuits to bus sections in UI)
 
 ROLE: UI_IMPLEMENTER  
-BRANCH: `feature/pb-v0-2-ui` (создавай изменения и коммиты только здесь)  
+BRANCH: `feature/circuits-section-ui` (создавай изменения и коммиты только здесь)  
 
 SCOPE (разрешено менять): `app/*`  
 SCOPE (запрещено менять): `db/*`, `calc_core/*`, `tools/*`, `tests/*`, `dwg/*`, `docs/*`
@@ -9,6 +9,7 @@ SCOPE (запрещено менять): `db/*`, `calc_core/*`, `tools/*`, `test
 ## Источник требований
 
 - `docs/contracts/PHASE_BALANCE_V0_1.md`
+- `docs/contracts/PHASE_BALANCE_V0_3A.md` (v0.3a)
 - `docs/ui/I18N_SPEC.md` (non-negotiable: все строки через `t()`, RU/EN)
 
 ## Предпосылки (в main после DB+Calc merge)
@@ -16,6 +17,7 @@ SCOPE (запрещено менять): `db/*`, `calc_core/*`, `tools/*`, `test
 В БД присутствуют:
 
 - `circuits.phase` (`L1/L2/L3`)
+- `circuits.bus_section_id` (nullable FK -> bus_sections.id)
 - `panel_phase_balance(panel_id, mode, i_l1, i_l2, i_l3, unbalance_pct, updated_at, invalid_manual_count, warnings_json)`
 
 В `calc_core` присутствует:
@@ -49,6 +51,13 @@ SCOPE (запрещено менять): `db/*`, `calc_core/*`, `tools/*`, `test
   - если `invalid_manual_count == 0` → banner/expander не должны отображаться
   - если `warnings_json` пустой/NULL → expander не показывать
 
+#### v0.3a EMERGENCY warnings (обязательно)
+
+- если выбран `pb-mode=EMERGENCY` и среди 1Φ цепей есть `bus_section_id IS NULL`:
+  - показать warning banner (RU/EN через i18n)
+- если calc записал в `warnings_json` предупреждение с причиной `EMERGENCY_SECTIONS_NOT_COMPUTED`:
+  - показать warning banner, что аварийные секции не рассчитаны и применён fallback
+
 ### 2) Таблица цепей с фазой
 
 Отображение:
@@ -68,6 +77,14 @@ SCOPE (запрещено менять): `db/*`, `calc_core/*`, `tools/*`, `test
 - добавить индикатор колонку (например `Status` или `⚠`) для цепей, где:
   - `phase_source='MANUAL'` и `phase` пустой/невалидный
   - индикатор и подписи — через i18n (`t(...)`), без хардкода
+
+#### v0.3a: привязка цепи к секции шин (обязательно)
+
+- добавить колонку `bus_section` (или `bus_section_id`) в таблицу 1Φ цепей
+- в `EDIT` сделать dropdown по доступным `bus_sections` текущего щита:
+  - option “—”/empty = `NULL`
+  - остальные options = имена секций (value сохранять как `bus_section_id`)
+- сохранять изменения только в БД (DB = truth)
 
 ### 3) Итоги баланса по фазам + неравномерность
 
@@ -98,7 +115,7 @@ SCOPE (запрещено менять): `db/*`, `calc_core/*`, `tools/*`, `test
 
 ## Git workflow (обязательно)
 
-1) `git checkout -b feature/pb-v0-2-ui` (или `git checkout feature/pb-v0-2-ui`)
+1) `git checkout -b feature/circuits-section-ui` (или `git checkout feature/circuits-section-ui`)
 2) Правки только в `app/*`
 3) `git add app`
-4) `git commit -m "ui: add pb-mode selector to phase balance"`
+4) `git commit -m "ui: bind circuits to bus sections"`
