@@ -1,7 +1,7 @@
-# CALC_ENGINEER TASK — Phase Balance v0.1 (greedy by i_calc_a)
+# CALC_ENGINEER TASK — Phase Balance v0.1.1 (respect MANUAL)
 
 ROLE: CALC_ENGINEER  
-BRANCH: `feature/phase-balance-calc` (создавай изменения и коммиты только здесь)  
+BRANCH: `feature/phase-source-calc` (создавай изменения и коммиты только здесь)  
 SCOPE (разрешено менять): `calc_core/*`, `tools/*`, `dwg/*`  
 SCOPE (запрещено менять): `db/*`, `tests/*`, `app/*`
 
@@ -14,25 +14,30 @@ SCOPE (запрещено менять): `db/*`, `tests/*`, `app/*`
 DB уже содержит:
 
 - `circuits.phase` (L1/L2/L3)
+- `circuits.phase_source` (AUTO/MANUAL)
 - `panel_phase_balance(panel_id, mode, i_l1, i_l2, i_l3, unbalance_pct, updated_at)`
 
 ## Цель (обязательно)
 
-### 1) Реализовать алгоритм в `calc_core/phase_balance.py`
+### 1) Обновить алгоритм в `calc_core/phase_balance.py`
 
 Добавить модуль:
 
 - `calc_core/phase_balance.py`
 
-API (рекомендуемое, но можно эквивалентно):
+API (норма, но можно эквивалентно):
 
-- `balance_panel(conn: sqlite3.Connection, panel_id: str, *, mode: str = "NORMAL") -> dict`
+- `calc_phase_balance(conn: sqlite3.Connection, panel_id: str, *, mode: str = \"NORMAL\", respect_manual: bool = True) -> int`
 
 Норматив:
 
 - взять 1Ф цепи `circuits.phases = 1` для `panel_id`
 - ток цепи \(I\): предпочесть `circuit_calc.i_calc_a` если есть, иначе `circuits.i_calc_a`
-- greedy bin-packing:
+- если `respect_manual=True`:
+  - исключить из переназначения цепи `circuits.phase_source='MANUAL'`
+  - сохранить их текущую `circuits.phase`
+  - учесть их ток в суммах фаз, если фаза валидна (`L1|L2|L3`)
+- greedy bin-packing для остальных:
   - сортировка по `I` по убыванию (tie-breaker: `circuits.id`)
   - назначать фазу с минимальной суммой
 - записать назначения в `circuits.phase`
@@ -45,19 +50,21 @@ API (рекомендуемое, но можно эквивалентно):
 
 - `--calc-phase-balance` (bool): выполнить балансировку фаз
 - `--pb-mode NORMAL|EMERGENCY` (default: NORMAL): режим записи в `panel_phase_balance`
+- флаг для отключения защиты manual фаз (например `--no-respect-manual-phases`), который передаёт `respect_manual=False`
 
 CLI должен:
 
 - применять миграции (как сейчас)
 - запускать фазную балансировку без зависимости от UI
 
-### 3) Экспорт: phase в JSON payload + CSV attrs mapping
+### 3) Экспорт: phase_source в JSON payload (рекомендуется)
 
 #### A) JSON payload
 
 В `calc_core/export_payload.py` добавить в `payload.circuits[]` поле:
 
 - `phase`: `"L1"|"L2"|"L3"|null`
+- `phase_source`: `"AUTO"|"MANUAL"|null` (если колонка существует)
 
 #### B) CSV attrs mapping
 
@@ -77,8 +84,8 @@ CLI должен:
 
 ## Git workflow (обязательно)
 
-1) `git checkout -b feature/phase-balance-calc` (или `git checkout feature/phase-balance-calc`)
+1) `git checkout -b feature/phase-source-calc` (или `git checkout feature/phase-source-calc`)
 2) Правки только в `calc_core/*`, `tools/*`, `dwg/*`
 3) `git add calc_core tools dwg`
-4) `git commit -m "calc: add phase balance for 1PH circuits"`
+4) `git commit -m "calc: respect MANUAL phase assignments"`
 

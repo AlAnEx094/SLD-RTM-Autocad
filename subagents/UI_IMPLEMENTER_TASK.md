@@ -1,7 +1,7 @@
-# UI_IMPLEMENTER TASK — Phase Balance v0.1 (Streamlit UI + i18n)
+# UI_IMPLEMENTER TASK — Phase Balance v0.1.1 (phase_source + protect MANUAL)
 
 ROLE: UI_IMPLEMENTER  
-BRANCH: `feature/phase-balance-ui` (создавай изменения и коммиты только здесь)  
+BRANCH: `feature/phase-source-ui` (создавай изменения и коммиты только здесь)  
 
 SCOPE (разрешено менять): `app/*`  
 SCOPE (запрещено менять): `db/*`, `calc_core/*`, `tools/*`, `tests/*`, `dwg/*`, `docs/*`
@@ -24,13 +24,17 @@ SCOPE (запрещено менять): `db/*`, `calc_core/*`, `tools/*`, `test
 
 ## Цель (обязательно)
 
-### 1) Кнопка запуска “Балансировка фаз”
+### 1) Кнопка запуска “Балансировка фаз” + protect MANUAL (обязательно)
 
 Добавить UI действие (рекомендуемое место: `app/views/calculate.py`, рядом с RTM/DU/SECTIONS):
 
 - кнопка **“Балансировка фаз”**
 - доступна только в `EDIT` (как и другие расчёты)
 - вызывает фазную балансировку (через `calc_core.phase_balance` или через CLI-обёртку) и обновляет состояние (rerun)
+- добавить чекбокс (default ON):
+  - RU: “Не изменять вручную назначенные фазы”
+  - EN: “Do not overwrite manually assigned phases”
+  - передавать `respect_manual` в вызов расчёта
 
 ### 2) Таблица цепей с фазой
 
@@ -46,6 +50,8 @@ SCOPE (запрещено менять): `db/*`, `calc_core/*`, `tools/*`, `test
 - дать возможность вручную менять `circuits.phase` для 1Ф цепей
 - валидировать допустимые значения: `L1|L2|L3|empty`
 - запись только в БД (DB = truth)
+- при ручном редактировании фазы выставлять `circuits.phase_source='MANUAL'`
+- показывать колонку `phase_source` в таблице (AUTO/MANUAL) с локализованными лейблами
 
 ### 3) Итоги баланса по фазам + неравномерность
 
@@ -76,7 +82,7 @@ SCOPE (запрещено менять): `db/*`, `calc_core/*`, `tools/*`, `test
 
 ## Git workflow (обязательно)
 
-1) `git checkout -b feature/phase-balance-ui` (или `git checkout feature/phase-balance-ui`)
+1) `git checkout -b feature/phase-source-ui` (или `git checkout feature/phase-source-ui`)
 2) Правки только в `app/*`
 3) `git add app`
-4) `git commit -m "ui: add phase balance controls"`
+4) `git commit -m "ui: protect manual phase assignments"`
