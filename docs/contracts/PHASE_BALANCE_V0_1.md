@@ -184,3 +184,52 @@ CLI не обязан запускать ΔU; ток \(I_c\) берётся из
 - UI показывает фазы и итоги, а запуск балансировки обновляет БД.
 - Экспорт JSON/CSV включает `phase`.
 
+---
+
+## 10) v0.2 additions (MVP-BAL v0.2)
+
+### 10.1 pb-mode semantics (UI selector)
+
+В UI появляется selector `pb-mode` = `NORMAL|EMERGENCY`.
+
+В текущей реализации (MVP-BAL v0.2):
+
+- `pb-mode` влияет **только** на:
+  - в какую строку `panel_phase_balance(panel_id, mode, ...)` будет записан агрегат
+  - какую строку `panel_phase_balance` UI отображает
+- `pb-mode` **не меняет набор цепей** и **не фильтрует** входные данные: алгоритм балансировки работает по всем 1Φ цепям панели.
+
+Важно (ограничение модели данных):
+
+- назначение фазы хранится в `circuits.phase` (одно поле на цепь), то есть **фаза не является mode-specific**.
+- поэтому запуск балансировки в `EMERGENCY` пересчитает те же `circuits.phase`, что и в `NORMAL`, и запишет агрегат в другую строку `panel_phase_balance`.
+
+### 10.2 phase_source (MANUAL protection) and invalid MANUAL warnings
+
+В ветке v0.1.1 введено `circuits.phase_source`:
+
+- `AUTO` — назначено алгоритмом
+- `MANUAL` — назначено пользователем и по умолчанию защищено от перезаписи
+
+В v0.1.2 добавлены persisted warnings в `panel_phase_balance`:
+
+- `invalid_manual_count` — количество 1Φ цепей с `phase_source='MANUAL'` и невалидной/пустой `phase`
+- `warnings_json` — JSON array с деталями проблемных цепей
+
+Норматив (v0.2):
+
+- 1Φ цепи с `phase_source='MANUAL'` и невалидной `phase`:
+  - **не включаются** в суммы `i_l1/i_l2/i_l3`
+  - учитываются в `invalid_manual_count`
+  - перечисляются в `warnings_json`
+
+### 10.3 Warnings auto-clear (no stale warnings)
+
+Норматив (v0.2):
+
+- если в текущем запуске балансировки **нет** invalid MANUAL phases:
+  - `invalid_manual_count` должен быть записан как `0`
+  - `warnings_json` должен быть записан как `NULL`
+
+Это гарантирует, что предупреждения не “залипают” после исправления данных.
+
