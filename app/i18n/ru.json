@@ -215,6 +215,13 @@
   "phase_balance.col_phase_source": "Источник фазы",
   "phase_balance.phase_source_auto": "Авто",
   "phase_balance.phase_source_manual": "Ручной",
+  "phase_balance.invalid_manual_banner": "Обнаружены вручную назначенные фазы с ошибками: {count}. Они не учтены в суммах фаз.",
+  "phase_balance.invalid_manual_expander": "Проблемные цепи ({count})",
+  "phase_balance.invalid_manual_no_details": "Детали предупреждений недоступны.",
+  "phase_balance.col_status": "Статус",
+  "phase_balance.status_invalid_manual": "⚠",
+  "phase_balance.col_reason": "Причина",
+  "phase_balance.reason_manual_invalid_phase": "Ручной режим: фаза не задана или неверна",
 
   "export.header": "Экспорт",
   "export.select_panel": "Выберите щит для экспорта.",

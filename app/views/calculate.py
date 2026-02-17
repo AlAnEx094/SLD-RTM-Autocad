@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import sqlite3
 
@@ -187,6 +188,44 @@ def _render_phase_balance_section(conn, state: dict, panel_id: str, panel: dict)
         cols[2].metric(t("phase_balance.i_l3"), f"{float(balance['i_l3']):.2f} A")
         cols[3].metric(t("phase_balance.unbalance_pct"), f"{float(balance['unbalance_pct']):.1f}%")
         st.caption(t("phase_balance.updated_at", at=balance.get("updated_at") or t("common.dash")))
+        invalid_count = int(balance.get("invalid_manual_count") or 0) if isinstance(balance, dict) else 0
+        if invalid_count > 0:
+            st.warning(t("phase_balance.invalid_manual_banner", count=invalid_count))
+            with st.expander(
+                t("phase_balance.invalid_manual_expander", count=invalid_count),
+                expanded=False,
+            ):
+                raw = balance.get("warnings_json")
+                items: list[dict] = []
+                if raw:
+                    try:
+                        parsed = json.loads(str(raw))
+                        if isinstance(parsed, list):
+                            items = [x for x in parsed if isinstance(x, dict)]
+                    except Exception:
+                        items = []
+                if not items:
+                    st.caption(t("phase_balance.invalid_manual_no_details"))
+                else:
+                    def _reason_label(code: object) -> str:
+                        c = str(code or "").strip().upper()
+                        if c == "MANUAL_INVALID_PHASE":
+                            return t("phase_balance.reason_manual_invalid_phase")
+                        return c or t("common.dash")
+
+                    st.dataframe(
+                        [
+                            {
+                                t("phase_balance.col_id"): it.get("circuit_id") or "",
+                                t("phase_balance.col_name"): it.get("name") or "",
+                                t("phase_balance.col_i_calc_a"): it.get("i_a"),
+                                t("phase_balance.col_phase"): it.get("phase") or "",
+                                t("phase_balance.col_reason"): _reason_label(it.get("reason")),
+                            }
+                            for it in items
+                        ],
+                        use_container_width=True,
+                    )
 
     circuits = db.list_circuits(conn, panel_id)
     circuits_1ph = [c for c in circuits if c.get("phases") == 1]
@@ -207,6 +246,12 @@ def _render_phase_balance_section(conn, state: dict, panel_id: str, panel: dict)
                 "phases": int(c["phases"]),
                 "i_calc_a": float(c["i_calc_a"]),
                 "phase": c.get("phase") or "",
+                "status": (
+                    t("phase_balance.status_invalid_manual")
+                    if (str(c.get("phase_source") or "AUTO").strip().upper() == "MANUAL")
+                    and (str(c.get("phase") or "").strip().upper() not in ("L1", "L2", "L3"))
+                    else ""
+                ),
                 "phase_source": _phase_source_label(
                     (c.get("phase_source") or "AUTO").strip().upper()
                 ),
@@ -230,6 +275,10 @@ def _render_phase_balance_section(conn, state: dict, panel_id: str, panel: dict)
             default="",
             disabled=not is_edit,
         ),
+        "status": st.column_config.TextColumn(
+            t("phase_balance.col_status"),
+            disabled=True,
+        ),
         "phase_source": st.column_config.TextColumn(
             t("phase_balance.col_phase_source"), disabled=True
         ),
@@ -240,7 +289,7 @@ def _render_phase_balance_section(conn, state: dict, panel_id: str, panel: dict)
         column_config=col_config,
         use_container_width=True,
         key="phase_balance_circuits",
-        disabled=["id", "name", "phases", "i_calc_a", "phase_source"],
+        disabled=["id", "name", "phases", "i_calc_a", "status", "phase_source"],
     )
 
     if is_edit and st.button(t("phase_balance.save_phases_btn")):

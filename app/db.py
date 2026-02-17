@@ -1046,14 +1046,13 @@ def get_panel_phase_balance(
     """Read panel_phase_balance for given panel and mode."""
     if not table_exists(conn, "panel_phase_balance"):
         return None
-    row = conn.execute(
-        """
-        SELECT i_l1, i_l2, i_l3, unbalance_pct, updated_at
-        FROM panel_phase_balance
-        WHERE panel_id = ? AND mode = ?
-        """,
-        (panel_id, mode),
-    ).fetchone()
+    cols = ["i_l1", "i_l2", "i_l3", "unbalance_pct", "updated_at"]
+    if column_exists(conn, "panel_phase_balance", "invalid_manual_count"):
+        cols.append("invalid_manual_count")
+    if column_exists(conn, "panel_phase_balance", "warnings_json"):
+        cols.append("warnings_json")
+    sql = f"SELECT {', '.join(cols)} FROM panel_phase_balance WHERE panel_id = ? AND mode = ?"
+    row = conn.execute(sql, (panel_id, mode)).fetchone()
     return dict(row) if row else None
 
 

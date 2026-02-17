@@ -215,6 +215,13 @@
   "phase_balance.col_phase_source": "Phase source",
   "phase_balance.phase_source_auto": "Auto",
   "phase_balance.phase_source_manual": "Manual",
+  "phase_balance.invalid_manual_banner": "Invalid manually assigned phases detected: {count}. They are excluded from phase sums.",
+  "phase_balance.invalid_manual_expander": "Offending circuits ({count})",
+  "phase_balance.invalid_manual_no_details": "Warning details are unavailable.",
+  "phase_balance.col_status": "Status",
+  "phase_balance.status_invalid_manual": "⚠",
+  "phase_balance.col_reason": "Reason",
+  "phase_balance.reason_manual_invalid_phase": "Manual: phase is missing or invalid",
 
   "export.header": "Export",
   "export.select_panel": "Select a panel to export.",
