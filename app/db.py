@@ -792,10 +792,32 @@ def list_modes(conn: sqlite3.Connection) -> list[dict[str, Any]]:
 
 def list_bus_sections(conn: sqlite3.Connection, panel_id: str) -> list[dict[str, Any]]:
     rows = conn.execute(
-        "SELECT id, panel_id, name FROM bus_sections WHERE panel_id = ? ORDER BY name",
+        """
+        SELECT id, panel_id, name, section_no, section_label
+        FROM bus_sections
+        WHERE panel_id = ?
+        ORDER BY COALESCE(section_no, 999999), name
+        """,
         (panel_id,),
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+def update_bus_section_meta(
+    conn: sqlite3.Connection,
+    bus_section_id: str,
+    *,
+    section_no: int,
+    section_label: str | None,
+) -> None:
+    conn.execute(
+        """
+        UPDATE bus_sections
+        SET section_no = ?, section_label = ?
+        WHERE id = ?
+        """,
+        (int(section_no), (section_label or "").strip() or None, bus_section_id),
+    )
 
 
 def list_consumers(conn: sqlite3.Connection, panel_id: str) -> list[dict[str, Any]]:
@@ -858,15 +880,21 @@ def delete_consumer(conn: sqlite3.Connection, consumer_id: str) -> None:
 
 
 def list_consumer_feeds(conn: sqlite3.Connection, panel_id: str) -> list[dict[str, Any]]:
+    has_feed_priority = column_exists(conn, "consumer_feeds", "feed_priority")
+    priority_expr = (
+        "COALESCE(f.feed_priority, f.priority, 1)"
+        if has_feed_priority
+        else "COALESCE(f.priority, 1)"
+    )
     rows = conn.execute(
-        """
-        SELECT f.id, f.consumer_id, f.bus_section_id, f.feed_role_id, f.priority,
-               bs.name AS bus_section_name
+        f"""
+        SELECT f.id, f.consumer_id, f.bus_section_id, f.feed_role_id, f.priority, {priority_expr} AS feed_priority,
+               bs.name AS bus_section_name, bs.section_no AS bus_section_no, bs.section_label AS bus_section_label
         FROM consumer_feeds f
         JOIN consumers c ON c.id = f.consumer_id
         LEFT JOIN bus_sections bs ON bs.id = f.bus_section_id
         WHERE c.panel_id = ?
-        ORDER BY c.name, f.priority
+        ORDER BY c.name, {priority_expr}
         """,
         (panel_id,),
     ).fetchall()
@@ -882,17 +910,31 @@ def upsert_consumer_feed(
     priority: int,
 ) -> str:
     feed_id = str(feed_id or uuid.uuid4())
-    conn.execute(
-        """
-        INSERT INTO consumer_feeds (id, consumer_id, bus_section_id, feed_role_id, priority)
-        VALUES (?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET
-          bus_section_id = excluded.bus_section_id,
-          feed_role_id = excluded.feed_role_id,
-          priority = excluded.priority
-        """,
-        (feed_id, consumer_id, bus_section_id, feed_role_id, priority),
-    )
+    if column_exists(conn, "consumer_feeds", "feed_priority"):
+        conn.execute(
+            """
+            INSERT INTO consumer_feeds (id, consumer_id, bus_section_id, feed_role_id, priority, feed_priority)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+              bus_section_id = excluded.bus_section_id,
+              feed_role_id = excluded.feed_role_id,
+              priority = excluded.priority,
+              feed_priority = excluded.feed_priority
+            """,
+            (feed_id, consumer_id, bus_section_id, feed_role_id, int(priority), int(priority)),
+        )
+    else:
+        conn.execute(
+            """
+            INSERT INTO consumer_feeds (id, consumer_id, bus_section_id, feed_role_id, priority)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+              bus_section_id = excluded.bus_section_id,
+              feed_role_id = excluded.feed_role_id,
+              priority = excluded.priority
+            """,
+            (feed_id, consumer_id, bus_section_id, feed_role_id, int(priority)),
+        )
     return feed_id
 
 
@@ -1084,11 +1126,11 @@ def list_section_calc(
     rows = conn.execute(
         """
         SELECT sc.panel_id, sc.bus_section_id, sc.mode, sc.p_kw, sc.q_kvar, sc.s_kva, sc.i_a, sc.updated_at,
-               bs.name AS bus_section_name
+               bs.name AS bus_section_name, bs.section_no AS bus_section_no, bs.section_label AS bus_section_label
         FROM section_calc sc
         LEFT JOIN bus_sections bs ON bs.id = sc.bus_section_id
         WHERE sc.panel_id = ? AND sc.mode = ?
-        ORDER BY bs.name
+        ORDER BY COALESCE(bs.section_no, 999999), bs.name
         """,
         (panel_id, mode),
     ).fetchall()
