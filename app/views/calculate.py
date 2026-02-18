@@ -268,7 +268,14 @@ def _render_phase_balance_section(conn, state: dict, panel_id: str, panel: dict)
 
     bus_sections = db.list_bus_sections(conn, panel_id)
     # Use stable labels to avoid ambiguity in dropdown.
-    section_label_by_id = {s["id"]: f"{s['name']} ({str(s['id'])[:8]})" for s in bus_sections}
+    section_label_by_id: dict[str, str] = {}
+    for s in bus_sections:
+        no = s.get("section_no")
+        base = t("common.section_no", no=int(no) if no is not None else "?")
+        label = (s.get("section_label") or s.get("name") or "").strip()
+        if label and label.upper() != "DEFAULT":
+            base = f"{base} ({label})"
+        section_label_by_id[s["id"]] = f"{base} ({str(s['id'])[:8]})"
     section_id_by_label = {v: k for k, v in section_label_by_id.items()}
     section_labels = sorted(section_label_by_id.values())
 

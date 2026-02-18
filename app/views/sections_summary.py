@@ -8,6 +8,15 @@ from app.i18n import t
 from app.ui_components import status_chip
 
 
+def _section_name(row: dict) -> str:
+    no = row.get("bus_section_no")
+    base = t("common.section_no", no=int(no) if no is not None else "?")
+    label = (row.get("bus_section_label") or row.get("bus_section_name") or "").strip()
+    if label and label.upper() != "DEFAULT":
+        return f"{base} ({label})"
+    return base
+
+
 def render(conn, state: dict) -> None:
     st.header(t("sections_summary.header"))
 
@@ -34,7 +43,7 @@ def render(conn, state: dict) -> None:
             st.dataframe(
                 [
                     {
-                        t("consumers.bus_section"): r.get("bus_section_name") or r["bus_section_id"],
+                        t("consumers.bus_section"): _section_name(r),
                         t("consumers.p_kw"): r["p_kw"],
                         t("consumers.q_kvar"): r["q_kvar"],
                         t("consumers.s_kva"): r["s_kva"],
@@ -61,7 +70,7 @@ def render(conn, state: dict) -> None:
             st.dataframe(
                 [
                     {
-                        t("consumers.bus_section"): r.get("bus_section_name") or r["bus_section_id"],
+                        t("consumers.bus_section"): _section_name(r),
                         t("consumers.p_kw"): r["p_kw"],
                         t("consumers.q_kvar"): r["q_kvar"],
                         t("consumers.s_kva"): r["s_kva"],

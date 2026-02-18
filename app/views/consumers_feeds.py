@@ -13,6 +13,15 @@ def _role_title(role: dict, lang: str) -> str:
     return role.get("title_en") or role.get("title_ru") or role.get("code") or role["id"]
 
 
+def _section_title(section: dict) -> str:
+    no = section.get("section_no")
+    base = t("common.section_no", no=int(no) if no is not None else "?")
+    label = (section.get("section_label") or section.get("name") or "").strip()
+    if label and label.upper() != "DEFAULT":
+        return f"{base} ({label})"
+    return base
+
+
 def render(conn, state: dict) -> None:
     st.header(t("consumers.header"))
 
@@ -39,10 +48,47 @@ def render(conn, state: dict) -> None:
         feeds_by_consumer[cid].append(f)
 
     role_options = {r["id"]: _role_title(r, lang) for r in feed_roles}
-    bus_options = {bs["id"]: bs["name"] for bs in bus_sections}
+    bus_options = {bs["id"]: _section_title(bs) for bs in bus_sections}
 
     if not bus_sections and is_edit:
         st.warning(t("consumers.no_bus_sections"))
+    if is_edit and bus_sections:
+        with st.expander(t("consumers.sections_editor"), expanded=False):
+            with st.form("edit_sections_meta_form"):
+                section_updates: list[tuple[str, int, str]] = []
+                for idx, bs in enumerate(bus_sections, start=1):
+                    col1, col2 = st.columns([1, 2])
+                    with col1:
+                        section_no = st.number_input(
+                            f"{t('consumers.section_no')} ({str(bs['id'])[:8]})",
+                            min_value=1,
+                            value=int(bs.get("section_no") or idx),
+                            step=1,
+                            key=f"section_no_{bs['id']}",
+                        )
+                    with col2:
+                        section_label = st.text_input(
+                            f"{t('consumers.section_label')} ({str(bs['id'])[:8]})",
+                            value=(bs.get("section_label") or bs.get("name") or ""),
+                            key=f"section_label_{bs['id']}",
+                        )
+                    section_updates.append((bs["id"], int(section_no), str(section_label)))
+                if st.form_submit_button(t("consumers.save_sections")):
+                    try:
+                        with db.tx(conn):
+                            for section_id, section_no, section_label in section_updates:
+                                db.update_bus_section_meta(
+                                    conn,
+                                    section_id,
+                                    section_no=section_no,
+                                    section_label=section_label,
+                                )
+                            db.touch_ui_input_meta(conn, panel_id, db.SUBSYSTEM_SECTIONS, note="edit_sections_meta")
+                        db.update_state_after_write(state, state["db_path"], conn)
+                        st.success(t("consumers.sections_saved"))
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(t("errors.failed_feed", exc=exc))
 
     for consumer in consumers:
         cid = consumer["id"]
@@ -81,7 +127,7 @@ def render(conn, state: dict) -> None:
                             )
                         )
                     with col3:
-                        st.text(str(feed.get("priority", 1)))
+                        st.text(str(feed.get("feed_priority", feed.get("priority", 1))))
                     with col4:
                         if is_edit and st.button(t("consumers.delete_feed"), key=f"del_feed_{feed['id']}"):
                             confirm_key = f"confirm_del_feed_{feed['id']}"
@@ -115,7 +161,7 @@ def render(conn, state: dict) -> None:
                         key=f"feed_role_{cid}",
                     )
                     priority = st.number_input(
-                        t("consumers.priority"),
+                        t("consumers.feed_priority"),
                         min_value=1,
                         value=len(feeds) + 1,
                         help=t("consumers.tooltip_priority"),
