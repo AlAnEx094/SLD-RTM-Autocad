@@ -21,6 +21,16 @@ def render(conn, state: dict) -> None:
         st.warning(t("panels.selected_not_found"))
         return
 
+    bus_sections = db.list_bus_sections(conn, panel_id)
+    section_title_by_id = {
+        s["id"]: (
+            t("consumers.section_title", no=s["section_no"])
+            if s.get("section_no") is not None
+            else s.get("name") or s["id"]
+        )
+        for s in bus_sections
+    }
+
     tab_normal, tab_emergency = st.tabs([t("sections_summary.tab_normal"), t("sections_summary.tab_emergency")])
 
     with tab_normal:
@@ -34,7 +44,7 @@ def render(conn, state: dict) -> None:
             st.dataframe(
                 [
                     {
-                        t("consumers.bus_section"): r.get("bus_section_name") or r["bus_section_id"],
+                        t("consumers.bus_section"): section_title_by_id.get(r["bus_section_id"], r.get("bus_section_name") or r["bus_section_id"]),
                         t("consumers.p_kw"): r["p_kw"],
                         t("consumers.q_kvar"): r["q_kvar"],
                         t("consumers.s_kva"): r["s_kva"],
@@ -61,7 +71,7 @@ def render(conn, state: dict) -> None:
             st.dataframe(
                 [
                     {
-                        t("consumers.bus_section"): r.get("bus_section_name") or r["bus_section_id"],
+                        t("consumers.bus_section"): section_title_by_id.get(r["bus_section_id"], r.get("bus_section_name") or r["bus_section_id"]),
                         t("consumers.p_kw"): r["p_kw"],
                         t("consumers.q_kvar"): r["q_kvar"],
                         t("consumers.s_kva"): r["s_kva"],

@@ -39,7 +39,13 @@ def render(conn, state: dict) -> None:
         feeds_by_consumer[cid].append(f)
 
     role_options = {r["id"]: _role_title(r, lang) for r in feed_roles}
-    bus_options = {bs["id"]: bs["name"] for bs in bus_sections}
+    def _section_title(bs: dict) -> str:
+        no = bs.get("section_no")
+        if no is not None:
+            return t("consumers.section_title", no=no)
+        return bs.get("name") or bs["id"]
+
+    bus_options = {bs["id"]: _section_title(bs) for bs in bus_sections}
 
     if not bus_sections and is_edit:
         st.warning(t("consumers.no_bus_sections"))
@@ -81,7 +87,7 @@ def render(conn, state: dict) -> None:
                             )
                         )
                     with col3:
-                        st.text(str(feed.get("priority", 1)))
+                        st.text(str(feed.get("feed_priority", 1)))
                     with col4:
                         if is_edit and st.button(t("consumers.delete_feed"), key=f"del_feed_{feed['id']}"):
                             confirm_key = f"confirm_del_feed_{feed['id']}"
@@ -131,6 +137,45 @@ def render(conn, state: dict) -> None:
                             st.rerun()
                         except Exception as exc:
                             st.error(t("errors.failed_feed", exc=exc))
+
+
+    if is_edit and bus_sections:
+        st.subheader(t("consumers.sections_editor"))
+        for bs in bus_sections:
+            sec_no_default = int(bs.get("section_no") or 1)
+            sec_label_default = bs.get("section_label") or ""
+            c1, c2, c3 = st.columns([2, 2, 1])
+            with c1:
+                section_no = st.number_input(
+                    t("consumers.section_no"),
+                    min_value=1,
+                    value=sec_no_default,
+                    step=1,
+                    key=f"section_no_{bs['id']}",
+                )
+            with c2:
+                section_label = st.text_input(
+                    t("consumers.section_label"),
+                    value=sec_label_default,
+                    key=f"section_label_{bs['id']}",
+                )
+            with c3:
+                st.caption(bus_options.get(bs["id"], bs["id"]))
+                if st.button(t("buttons.save"), key=f"save_section_{bs['id']}"):
+                    try:
+                        with db.tx(conn):
+                            db.update_bus_section_meta(
+                                conn,
+                                bs["id"],
+                                section_no=int(section_no),
+                                section_label=section_label.strip() or None,
+                            )
+                            db.touch_ui_input_meta(conn, panel_id, db.SUBSYSTEM_SECTIONS, note="edit_section_meta")
+                        db.update_state_after_write(state, state["db_path"], conn)
+                        st.success(t("consumers.saved"))
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(t("errors.failed_update_panel", exc=exc))
 
     if is_edit:
         st.subheader(t("consumers.add_consumer"))

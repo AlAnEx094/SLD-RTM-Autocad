@@ -8,7 +8,6 @@
   "sidebar.active_panel": "Active panel",
   "sidebar.navigation": "Navigation",
   "sidebar.none": "(none)",
-
   "nav.db_connect": "DB Connect",
   "nav.overview": "Overview",
   "nav.wizard": "Wizard",
@@ -16,11 +15,9 @@
   "nav.rtm": "RTM",
   "nav.calculate": "Calculate",
   "nav.export": "Export",
-
   "access_mode.read_only": "Read only",
   "access_mode.edit": "Edit",
   "access_mode.confirm_edit": "I understand this will modify DB",
-
   "status.ok": "OK",
   "status.stale": "Stale",
   "status.no_calc": "No calc",
@@ -34,7 +31,6 @@
   "chips.phase": "PHASE",
   "chips.du": "DU",
   "chips.sections_with_mode": "SECTIONS ({mode})",
-
   "errors.db_not_found": "DB not found: {path}",
   "errors.db_path_empty": "DB path is empty.",
   "errors.go_db_connect": "Go to DB Connect to create/apply migrations.",
@@ -60,7 +56,6 @@
   "errors.failed_feed_role": "Failed to save feed role: {exc}",
   "errors.export_failed": "Export failed: {exc}",
   "errors.db_modified_outside": "DB was modified outside UI. Status is UNKNOWN; recalculation recommended.",
-
   "db_connect.header": "DB Connect",
   "db_connect.current_path": "Current DB path: `{path}`",
   "db_connect.file_not_exists": "DB file does not exist yet.",
@@ -85,13 +80,11 @@
   "db_connect.migrations_confirm": "Apply migrations to DB (DDL changes)",
   "db_connect.apply_btn": "Apply migrations",
   "db_connect.migrations_applied": "Migrations applied.",
-
   "overview.header": "Project Overview",
   "overview.panels": "Panels",
   "overview.rtm_rows": "RTM rows",
   "overview.circuits": "Circuits",
   "overview.consumers": "Consumers",
-
   "wizard.header": "Wizard (v0.2)",
   "wizard.step1": "1) Panel",
   "wizard.step2": "2) Load Table",
@@ -107,7 +100,6 @@
   "wizard.step2_header": "Step 2: Fill Load Table",
   "wizard.step3_header": "Step 3: Calculate",
   "wizard.step4_header": "Step 4: Export",
-
   "panels.create_header": "Create panel",
   "panels.switch_edit_create": "Switch to EDIT mode to create panels.",
   "panels.name": "Name",
@@ -136,7 +128,6 @@
   "panels.type_delete": "Type DELETE to confirm",
   "panels.delete_btn": "Delete panel",
   "panels.deleted": "Panel deleted.",
-
   "rtm.header": "Load Table (Unified)",
   "rtm.select_panel": "Select a panel to edit RTM rows.",
   "rtm.panel_header": "Panel header (quick settings)",
@@ -175,7 +166,6 @@
   "rtm.delete_row_btn": "Delete row",
   "rtm.row_deleted": "Row deleted.",
   "rtm.no_rows_to_delete": "No RTM rows to delete.",
-
   "calculate.header": "Calculate",
   "calculate.select_panel": "Select a panel to run calculations.",
   "calculate.sections_mode": "Sections mode",
@@ -191,7 +181,6 @@
   "calculate.run_sections": "Run Sections",
   "calculate.aggregate_btn": "Aggregate sections ({mode})",
   "calculate.sections_aggregated": "Sections aggregated: {count}",
-
   "phase_balance.section": "Phase balance",
   "phase_balance.run_btn": "Run phase balance",
   "phase_balance.run_success": "Phase balance done: {count} 1PH circuits.",
@@ -227,7 +216,6 @@
   "phase_balance.col_reason": "Reason",
   "phase_balance.reason_manual_invalid_phase": "Manual: phase is missing or invalid",
   "phase_balance.reason_emergency_sections_not_computed": "EMERGENCY: emergency sections not computed",
-
   "export.header": "Export",
   "export.select_panel": "Select a panel to export.",
   "export.blocked": "Export is blocked by default unless RTM status is OK.",
@@ -245,7 +233,6 @@
   "export.csv_exported": "CSV exported to: {path}",
   "export.rows_info": "Rows: panel={panel}, circuits={circuits}, sections={sections}",
   "export.download_file": "Download {filename}",
-
   "validation.name_required": "name is required",
   "validation.system_type": "system_type must be 3PH or 1PH",
   "validation.field_required": "{field} is required",
@@ -269,7 +256,6 @@
   "validation.phase_mode": "phase_mode must be AUTO, FIXED, or NONE",
   "validation.phase_fixed_abc": "phase_fixed must be A, B, or C when FIXED",
   "validation.phase_fixed_empty": "phase_fixed must be empty unless FIXED",
-
   "nav.feed_roles": "Feed roles",
   "nav.consumers_feeds": "Consumers + Feeds",
   "nav.mode_rules": "Mode rules",
@@ -336,5 +322,9 @@
   "buttons.save": "Save",
   "buttons.cancel": "Cancel",
   "mode.normal": "Normal",
-  "mode.emergency": "Emergency"
+  "mode.emergency": "Emergency",
+  "consumers.section_title": "Section {no}",
+  "consumers.sections_editor": "Bus sections",
+  "consumers.section_no": "Section number",
+  "consumers.section_label": "Section label"
 }

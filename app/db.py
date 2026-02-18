@@ -792,10 +792,33 @@ def list_modes(conn: sqlite3.Connection) -> list[dict[str, Any]]:
 
 def list_bus_sections(conn: sqlite3.Connection, panel_id: str) -> list[dict[str, Any]]:
     rows = conn.execute(
-        "SELECT id, panel_id, name FROM bus_sections WHERE panel_id = ? ORDER BY name",
+        """
+        SELECT id, panel_id, name, section_no, section_label
+        FROM bus_sections
+        WHERE panel_id = ?
+        ORDER BY COALESCE(section_no, 2147483647), name
+        """,
         (panel_id,),
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+def update_bus_section_meta(
+    conn: sqlite3.Connection,
+    bus_section_id: str,
+    *,
+    section_no: int | None,
+    section_label: str | None,
+) -> None:
+    conn.execute(
+        """
+        UPDATE bus_sections
+        SET section_no = ?,
+            section_label = ?
+        WHERE id = ?
+        """,
+        (section_no, section_label, bus_section_id),
+    )
 
 
 def list_consumers(conn: sqlite3.Connection, panel_id: str) -> list[dict[str, Any]]:
@@ -860,13 +883,14 @@ def delete_consumer(conn: sqlite3.Connection, consumer_id: str) -> None:
 def list_consumer_feeds(conn: sqlite3.Connection, panel_id: str) -> list[dict[str, Any]]:
     rows = conn.execute(
         """
-        SELECT f.id, f.consumer_id, f.bus_section_id, f.feed_role_id, f.priority,
+        SELECT f.id, f.consumer_id, f.bus_section_id, f.feed_role_id,
+               COALESCE(f.feed_priority, f.priority, 1) AS feed_priority,
                bs.name AS bus_section_name
         FROM consumer_feeds f
         JOIN consumers c ON c.id = f.consumer_id
         LEFT JOIN bus_sections bs ON bs.id = f.bus_section_id
         WHERE c.panel_id = ?
-        ORDER BY c.name, f.priority
+        ORDER BY c.name, COALESCE(f.feed_priority, f.priority, 1)
         """,
         (panel_id,),
     ).fetchall()
@@ -884,14 +908,15 @@ def upsert_consumer_feed(
     feed_id = str(feed_id or uuid.uuid4())
     conn.execute(
         """
-        INSERT INTO consumer_feeds (id, consumer_id, bus_section_id, feed_role_id, priority)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO consumer_feeds (id, consumer_id, bus_section_id, feed_role_id, priority, feed_priority)
+        VALUES (?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           bus_section_id = excluded.bus_section_id,
           feed_role_id = excluded.feed_role_id,
-          priority = excluded.priority
+          priority = excluded.priority,
+          feed_priority = excluded.feed_priority
         """,
-        (feed_id, consumer_id, bus_section_id, feed_role_id, priority),
+        (feed_id, consumer_id, bus_section_id, feed_role_id, priority, priority),
     )
     return feed_id
 
