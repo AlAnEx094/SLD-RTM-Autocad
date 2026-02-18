@@ -11,7 +11,7 @@ for **calculation modes** `NORMAL` / `EMERGENCY` (Feeds v2).
 - **Секция шин / Bus section**: `bus_sections`
 - **Потребитель / Consumer**: `consumers`
 - **Ввод / Feed**: one row in `consumer_feeds`
-- **Роль ввода / Feed role**: `feed_roles` (`MAIN/RESERVE/DG/DC/UPS`)
+- **Роль ввода / Feed role**: `feed_roles` (`MAIN/RESERVE/DG/UPS/OTHER`; legacy `DC` is compatibility-only)
 - **Режим расчёта / Calculation mode**: `modes` (`NORMAL/EMERGENCY`)
 
 ## DB tables (inputs)

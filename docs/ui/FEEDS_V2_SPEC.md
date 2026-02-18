@@ -218,3 +218,28 @@ UI должен обеспечить ввод/редактирование (в `
 - Поддержка 3+ вводов через `priority` и отсутствие ограничений “строго два”.
 - Термины в UI — едины (см. глоссарий).
 
+
+## 7) A1 Addendum (feeds vs sections)
+
+This addendum clarifies and extends Feeds v2.
+
+- Bus section identity is numeric: `bus_sections.section_no` (`1..N`).
+- `bus_sections.name` and `bus_sections.section_label` are optional display labels.
+- Feed role list for A1: `MAIN`, `RESERVE`, `DG`, `UPS`, `OTHER`.
+- Legacy role `DC` is tolerated for backward compatibility, but new UI should use `OTHER`.
+- `consumer_feeds.priority` remains supported; A1 adds `consumer_feeds.feed_priority` and backfills from `priority`.
+- `mode` (`NORMAL`/`EMERGENCY`) controls active feed-role logic and must not be used as section identity.
+
+### 7.1 Backward mapping in A1
+
+- Legacy `consumer_feeds.feed_role='NORMAL'` -> role `MAIN`.
+- Legacy `consumer_feeds.feed_role='RESERVE'` -> role `RESERVE`.
+- Legacy section naming (`DEFAULT`, `MAIN`, `RESERVE`) is display-only after migration; identity is `section_no`.
+
+### 7.2 How to use after A1
+
+1. Create/edit bus sections with numeric `section_no` (for example `1`, `2`, `3`).
+2. Configure feeds with `role` and `priority` (lower means preferred).
+3. Link section supply in `bus_section_feeds`.
+4. Bind consumer feeds and circuit `bus_section_id` independently from feed role.
+5. Run section aggregation by `mode` (`NORMAL`/`EMERGENCY`) without changing section numbering.
