@@ -7,7 +7,7 @@
 Ввести корректную модель “Вводы / Feeds” с поддержкой 2+ (и готовностью к 3+) вводов на потребителя:
 
 - **bus_sections = S1/S2/S3** (топология секций шин внутри щита)
-- **feed_role = MAIN/RESERVE/DG/DC/UPS** (роль *ввода*, т.е. тип источника/ввода)
+- **feed_role = MAIN/RESERVE/DG/UPS/OTHER** (роль *ввода*, т.е. тип источника/ввода)
 - **mode = NORMAL/EMERGENCY** (режим *расчёта*, т.е. сценарий, при котором выбирается активный ввод)
 
 ### Проблема v1 (текущее состояние до миграции)
@@ -218,3 +218,12 @@ UI должен обеспечить ввод/редактирование (в `
 - Поддержка 3+ вводов через `priority` и отсутствие ограничений “строго два”.
 - Термины в UI — едины (см. глоссарий).
 
+
+
+## A1 update (sections by number)
+
+- Bus sections are identified by numeric `section_no` (1..N), not by MAIN/RESERVE semantics.
+- Feed role is modeled separately (`MAIN/RESERVE/DG/UPS/OTHER`) and can exist in 2+ entries.
+- `mode` (`NORMAL/EMERGENCY`) drives active-role selection only; it does not redefine bus section identity.
+- New explicit `bus_section_feeds` relation is used to describe section supply topology for future DWG generation.
+- Legacy fields remain for backward compatibility; see `docs/contracts/FEEDS_SECTIONS_A1.md`.

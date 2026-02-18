@@ -8,7 +8,6 @@
   "sidebar.active_panel": "Активный щит",
   "sidebar.navigation": "Навигация",
   "sidebar.none": "(нет)",
-
   "nav.db_connect": "Подключение БД",
   "nav.overview": "Обзор",
   "nav.wizard": "Мастер",
@@ -16,11 +15,9 @@
   "nav.rtm": "RTM",
   "nav.calculate": "Расчёт",
   "nav.export": "Экспорт",
-
   "access_mode.read_only": "Только чтение",
   "access_mode.edit": "Редактирование",
   "access_mode.confirm_edit": "Я понимаю, что это изменит БД",
-
   "status.ok": "OK",
   "status.stale": "Устарело",
   "status.no_calc": "Нет расчёта",
@@ -34,7 +31,6 @@
   "chips.phase": "Фазы",
   "chips.du": "DU",
   "chips.sections_with_mode": "Секции ({mode})",
-
   "errors.db_not_found": "БД не найдена: {path}",
   "errors.db_path_empty": "Путь к БД пуст.",
   "errors.go_db_connect": "Перейдите в Подключение БД для создания/применения миграций.",
@@ -60,7 +56,6 @@
   "errors.failed_feed_role": "Ошибка сохранения роли ввода: {exc}",
   "errors.export_failed": "Ошибка экспорта: {exc}",
   "errors.db_modified_outside": "БД изменена вне UI. Статус неизвестен; рекомендуется пересчёт.",
-
   "db_connect.header": "Подключение БД",
   "db_connect.current_path": "Текущий путь к БД: `{path}`",
   "db_connect.file_not_exists": "Файл БД ещё не существует.",
@@ -85,13 +80,11 @@
   "db_connect.migrations_confirm": "Применить миграции к БД (изменения DDL)",
   "db_connect.apply_btn": "Применить миграции",
   "db_connect.migrations_applied": "Миграции применены.",
-
   "overview.header": "Обзор проекта",
   "overview.panels": "Щиты",
   "overview.rtm_rows": "Строки RTM",
   "overview.circuits": "Цепи",
   "overview.consumers": "Потребители",
-
   "wizard.header": "Мастер (v0.2)",
   "wizard.step1": "1) Щит",
   "wizard.step2": "2) Таблица нагрузок",
@@ -107,7 +100,6 @@
   "wizard.step2_header": "Шаг 2: Заполните таблицу нагрузок",
   "wizard.step3_header": "Шаг 3: Расчёт",
   "wizard.step4_header": "Шаг 4: Экспорт",
-
   "panels.create_header": "Создать щит",
   "panels.switch_edit_create": "Переключитесь в режим Редактирование для создания щитов.",
   "panels.name": "Название",
@@ -136,7 +128,6 @@
   "panels.type_delete": "Введите DELETE для подтверждения",
   "panels.delete_btn": "Удалить щит",
   "panels.deleted": "Щит удалён.",
-
   "rtm.header": "Таблица нагрузок (объединённая)",
   "rtm.select_panel": "Выберите щит для редактирования строк RTM.",
   "rtm.panel_header": "Заголовок щита (быстрые настройки)",
@@ -175,7 +166,6 @@
   "rtm.delete_row_btn": "Удалить строку",
   "rtm.row_deleted": "Строка удалена.",
   "rtm.no_rows_to_delete": "Нет строк RTM для удаления.",
-
   "calculate.header": "Расчёт",
   "calculate.select_panel": "Выберите щит для выполнения расчётов.",
   "calculate.sections_mode": "Режим секций",
@@ -191,7 +181,6 @@
   "calculate.run_sections": "Выполнить секции",
   "calculate.aggregate_btn": "Агрегировать секции ({mode})",
   "calculate.sections_aggregated": "Секции агрегированы: {count}",
-
   "phase_balance.section": "Баланс фаз",
   "phase_balance.run_btn": "Выполнить балансировку фаз",
   "phase_balance.run_success": "Баланс фаз выполнен: {count} цепей 1Ф.",
@@ -227,7 +216,6 @@
   "phase_balance.col_reason": "Причина",
   "phase_balance.reason_manual_invalid_phase": "Ручной режим: фаза не задана или неверна",
   "phase_balance.reason_emergency_sections_not_computed": "EMERGENCY: аварийные секции не рассчитаны",
-
   "export.header": "Экспорт",
   "export.select_panel": "Выберите щит для экспорта.",
   "export.blocked": "Экспорт по умолчанию заблокирован, если статус RTM не OK.",
@@ -245,7 +233,6 @@
   "export.csv_exported": "CSV экспортирован в: {path}",
   "export.rows_info": "Строк: panel={panel}, circuits={circuits}, sections={sections}",
   "export.download_file": "Скачать {filename}",
-
   "validation.name_required": "name обязателен",
   "validation.system_type": "system_type должен быть 3PH или 1PH",
   "validation.field_required": "{field} обязателен",
@@ -269,7 +256,6 @@
   "validation.phase_mode": "phase_mode должен быть AUTO, FIXED или NONE",
   "validation.phase_fixed_abc": "phase_fixed должен быть A, B или C при FIXED",
   "validation.phase_fixed_empty": "phase_fixed должен быть пустым, если не FIXED",
-
   "nav.feed_roles": "Роли вводов",
   "nav.consumers_feeds": "Потребители и вводы",
   "nav.mode_rules": "Правила режимов",
@@ -336,5 +322,9 @@
   "buttons.save": "Сохранить",
   "buttons.cancel": "Отмена",
   "mode.normal": "Нормальный",
-  "mode.emergency": "Аварийный"
+  "mode.emergency": "Аварийный",
+  "consumers.section_title": "Секция {no}",
+  "consumers.sections_editor": "Секции шин",
+  "consumers.section_no": "Номер секции",
+  "consumers.section_label": "Метка секции"
 }

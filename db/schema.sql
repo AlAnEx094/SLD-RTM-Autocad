@@ -2,7 +2,7 @@
 -- Агрегированный слепок схемы (MVP-0.3 + Feeds v2).
 -- Источник истины для эволюции схемы — миграции в db/migrations/.
 --
--- Схема: 0001..0004 + 0005_feeds_v2_refs + 0006_section_calc_mode_emergency + 0007_phase_balance + 0008_phase_source + 0009_phase_balance_warnings + 0010_circuits_bus_section
+-- Схема: 0001..0004 + 0005_feeds_v2_refs + 0006_section_calc_mode_emergency + 0007_phase_balance + 0008_phase_source + 0009_phase_balance_warnings + 0010_circuits_bus_section + 0011_feeds_sections_a1
 
 PRAGMA foreign_keys = ON;
 
@@ -22,10 +22,13 @@ CREATE TABLE IF NOT EXISTS panels (
 CREATE TABLE IF NOT EXISTS bus_sections (
   id TEXT PRIMARY KEY,
   panel_id TEXT NOT NULL REFERENCES panels(id) ON DELETE CASCADE,
-  name TEXT NOT NULL
+  name TEXT NOT NULL,
+  section_no INTEGER,
+  section_label TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_bus_sections_panel_id ON bus_sections(panel_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_bus_sections_panel_section_no ON bus_sections(panel_id, section_no) WHERE section_no IS NOT NULL;
 
 -- Потребители (могут ссылаться на РТМ либо задаваться вручную)
 CREATE TABLE IF NOT EXISTS consumers (
@@ -70,11 +73,38 @@ CREATE TABLE IF NOT EXISTS consumer_feeds (
   bus_section_id TEXT NOT NULL REFERENCES bus_sections(id) ON DELETE CASCADE,
   feed_role TEXT CHECK (feed_role IN ('NORMAL', 'RESERVE')),
   feed_role_id TEXT REFERENCES feed_roles(id),
-  priority INT NOT NULL DEFAULT 1
+  priority INT NOT NULL DEFAULT 1,
+  feed_priority INTEGER NOT NULL DEFAULT 1
 );
 
 CREATE INDEX IF NOT EXISTS idx_consumer_feeds_consumer_id ON consumer_feeds(consumer_id);
 CREATE INDEX IF NOT EXISTS idx_consumer_feeds_bus_section_id ON consumer_feeds(bus_section_id);
+
+
+-- Вводы щита (A1: явная модель источников питания секций)
+CREATE TABLE IF NOT EXISTS feeds (
+  id TEXT PRIMARY KEY,
+  panel_id TEXT NOT NULL REFERENCES panels(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  role TEXT NOT NULL REFERENCES feed_roles(id),
+  priority INTEGER NOT NULL DEFAULT 1,
+  source_panel_id TEXT NULL REFERENCES panels(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_feeds_panel_id ON feeds(panel_id);
+CREATE INDEX IF NOT EXISTS idx_feeds_role ON feeds(role);
+
+-- Связь «секция шин питается от ввода» (A1)
+CREATE TABLE IF NOT EXISTS bus_section_feeds (
+  bus_section_id TEXT NOT NULL REFERENCES bus_sections(id) ON DELETE CASCADE,
+  feed_id TEXT NOT NULL REFERENCES feeds(id) ON DELETE CASCADE,
+  mode TEXT NOT NULL CHECK(mode IN ('NORMAL', 'EMERGENCY')),
+  is_active_default INTEGER NOT NULL DEFAULT 1 CHECK(is_active_default IN (0,1)),
+  PRIMARY KEY (bus_section_id, feed_id, mode)
+);
+
+CREATE INDEX IF NOT EXISTS idx_bus_section_feeds_feed_id ON bus_section_feeds(feed_id);
+CREATE INDEX IF NOT EXISTS idx_bus_section_feeds_mode ON bus_section_feeds(mode);
 
 -- Правила выбора активной роли по режиму (Feeds v2)
 CREATE TABLE IF NOT EXISTS consumer_mode_rules (
